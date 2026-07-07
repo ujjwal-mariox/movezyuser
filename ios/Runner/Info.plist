@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Movezy User App</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>movezy_user_app</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	
+	<!-- Location Permissions -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs access to your location to show nearby delivery partners and track deliveries</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>This app needs access to your location to show nearby delivery partners and track deliveries</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>This app needs access to your location to show nearby delivery partners and track deliveries</string>
+	
+	<!-- Camera Permissions -->
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs access to your camera to take photos for delivery documentation and profile pictures</string>
+	
+	<!-- Photo Library Permissions -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs access to your photo library to select profile pictures and delivery photos</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>This app needs access to save photos to your library</string>
+	
+	<!-- Contacts Permissions -->
+	<key>NSContactsUsageDescription</key>
+	<string>This app needs access to your contacts to enable quick calling and contact sharing</string>
+	
+	<!-- Microphone Permissions -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app needs access to your microphone for voice calls and communication</string>
+	
+	<!-- Calendar Permissions -->
+	<key>NSCalendarsUsageDescription</key>
+	<string>This app needs access to your calendar to schedule deliveries</string>
+	
+	<!-- Bluetooth Permissions -->
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>This app needs access to Bluetooth to connect with delivery devices</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>This app needs access to Bluetooth to connect with delivery devices</string>
+	
+	<!-- Motion/Activity Permissions -->
+	<key>NSMotionUsageDescription</key>
+	<string>This app needs access to motion data for activity tracking</string>
+	
+	<!-- Health Permissions -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>This app needs access to health data for user wellness tracking</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>This app needs access to update health data</string>
+	
+	<!-- Siri Permissions -->
+	<key>NSSiriUsageDescription</key>
+	<string>This app uses Siri to enable voice commands</string>
+	
+	<!-- Local Network Permissions (iOS 14+) -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app needs access to your local network for device discovery</string>
+	<key>NSBonjourServiceTypes</key>
+	<array>
+		<string>_services._tcp</string>
+	</array>
+</dict>
+</plist>
