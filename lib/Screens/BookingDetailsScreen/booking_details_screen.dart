@@ -152,7 +152,11 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     // Fare info
     final finalFare = (b['finalFare'] ?? b['fare'] ?? 0).toDouble();
     final baseFare = (b['baseFare'] ?? 0).toDouble();
-    final discount = (b['discount'] ?? 0).toDouble();
+    // The booking stores `totalDiscount` (promoDiscount + coinDiscount); the
+    // legacy `discount` field is deprecated and always 0, so the receipt showed
+    // "Offer / Coupon ₹0" even when a promo had been applied.
+    final discount =
+        (b['totalDiscount'] ?? b['discount'] ?? 0).toDouble();
 
     return SingleChildScrollView(
       child: Column(
@@ -306,51 +310,55 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () async {
-                          try {
-                            final invoice = await BookingService.getInvoice(widget.bookingId);
-                            final data = invoice['data'] is Map ? invoice['data'] : invoice;
-                            final pdfUrl = data['pdfUrl']?.toString();
-                            final invNo = data['invoiceNumber'] ?? bookingNumber;
-                            if (!mounted) return;
-                            if (pdfUrl != null && pdfUrl.isNotEmpty) {
-                              // A generated PDF exists — open it in the browser/viewer.
-                              final uri = Uri.parse(pdfUrl);
-                              if (await canLaunchUrl(uri)) {
-                                await launchUrl(uri, mode: LaunchMode.externalApplication);
-                                return;
+                    // The invoice endpoint only matches COMPLETED bookings, so
+                    // offering this on an active ride always 404s.
+                    if (status == 'COMPLETED') ...[
+                      const SizedBox(width: 15),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            try {
+                              final invoice = await BookingService.getInvoice(widget.bookingId);
+                              final data = invoice['data'] is Map ? invoice['data'] : invoice;
+                              final pdfUrl = data['pdfUrl']?.toString();
+                              final invNo = data['invoiceNumber'] ?? bookingNumber;
+                              if (!mounted) return;
+                              if (pdfUrl != null && pdfUrl.isNotEmpty) {
+                                // A generated PDF exists — open it in the browser/viewer.
+                                final uri = Uri.parse(pdfUrl);
+                                if (await canLaunchUrl(uri)) {
+                                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                  return;
+                                }
+                              }
+                              // No PDF file generated yet — show the invoice number honestly.
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Invoice #$invNo generated. A downloadable copy isn\'t available yet.'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Invoice error: $e'), backgroundColor: Colors.red),
+                                );
                               }
                             }
-                            // No PDF file generated yet — show the invoice number honestly.
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Invoice #$invNo generated. A downloadable copy isn\'t available yet.'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Invoice error: $e'), backgroundColor: Colors.red),
-                              );
-                            }
-                          }
-                        },
-                        child: Container(
-                          height: 50,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: HexColor("#2A5CD0"), width: 1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Center(
-                            child: Text("Download Invoice", style: TextStyle(color: HexColor("#2A5CD0"), fontWeight: FontWeight.w500, fontSize: 13)),
+                          },
+                          child: Container(
+                            height: 50,
+                            decoration: BoxDecoration(
+                              border: Border.all(color: HexColor("#2A5CD0"), width: 1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Center(
+                              child: Text("Download Invoice", style: TextStyle(color: HexColor("#2A5CD0"), fontWeight: FontWeight.w500, fontSize: 13)),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
 

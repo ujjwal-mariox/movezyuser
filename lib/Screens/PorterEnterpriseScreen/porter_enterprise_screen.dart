@@ -4,6 +4,7 @@ import 'package:hexcolor/hexcolor.dart';
 import 'package:http/http.dart' as http;
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
+import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
 
 /// Renamed from PorterEnterpriseScreen → MovezyEnterpriseScreen.
@@ -117,7 +118,16 @@ class _PorterEnterpriseScreenState extends State<PorterEnterpriseScreen>
                     (a['sortOrder'] ?? 0).compareTo(b['sortOrder'] ?? 0));
             }
           });
+        } else {
+          // 200 but no usable payload.
+          _setDefaultContent();
         }
+      } else {
+        // package:http does NOT throw on 4xx/5xx, so this never reached the
+        // catch below — a non-200 left the page with no Key Features and no
+        // FAQ at all, rendering blank rather than falling back.
+        debugPrint('Enterprise content HTTP ${res.statusCode}');
+        _setDefaultContent();
       }
     } catch (e) {
       debugPrint('Failed to load enterprise content: $e');
@@ -134,21 +144,163 @@ class _PorterEnterpriseScreenState extends State<PorterEnterpriseScreen>
       {'icon': 'one_account', 'title': 'One Account, Multi Users', 'description': 'Manage all users under a single account – no petty-cash claims'},
       {'icon': 'flexible_payments', 'title': 'Flexible Payments', 'description': 'Instant recharge with credit card, netbanking, UPI, and more'},
     ];
+    // FAQs describe how this app ACTUALLY works. The previous defaults talked
+    // about email/password sign-up, verification emails and "Forgot Password" —
+    // none of which exist here (login is mobile + OTP only).
     _faqs = [
-      {'question': 'How do I create an account on the app?', 'answer': 'To create an account, open the app and tap on \'Sign Up\'. Fill in your details such as name, email, and password, then tap \'Create Account\'. You will receive a verification email.'},
-      {'question': 'Can I book a ride without creating an account?', 'answer': 'No, you need to create an account before booking a ride. This ensures your trip details, payments, and support requests are linked securely to your profile.'},
-      {'question': 'How do I reset my password if I forget it?', 'answer': 'On the login screen, tap on \'Forgot Password\'. Enter your registered email address and follow the link sent to your inbox to set a new password.'},
-      {'question': 'How do I update my profile information?', 'answer': 'Go to your Profile section from the main menu, then tap \'Edit Profile\'. You can update your name, email, phone number, and profile picture from there.'},
+      {'question': 'How do I create an account?', 'answer': 'Enter your mobile number on the login screen and verify the OTP we text you. Your account is created automatically — there is no password to remember.'},
+      {'question': 'Can I book without creating an account?', 'answer': 'No. Verifying your number lets us link your trips, payments and support requests to you, and lets the driver reach you at pickup.'},
+      {'question': 'How do I get a GST invoice for my trips?', 'answer': 'Add your GSTIN under Profile → GST Details. Once it is saved, your business name and GSTIN appear on the invoice for every completed booking.'},
+      {'question': 'How do I update my profile information?', 'answer': 'Open Profile and tap Edit Profile to update your name, email and photo. Your mobile number is your login and stays fixed.'},
     ];
-    _clients = [
-      {'name': 'Amazon', 'logoUrl': 'amazon_logo'},
-      {'name': 'Samsung', 'logoUrl': 'samsung_logo'},
-      {'name': 'ShopMart', 'logoUrl': 'shop_mart_logo'},
-    ];
+    // NO default client list. This used to claim Amazon, Samsung and ShopMart as
+    // customers whenever the API returned nothing — a false claim about real
+    // companies, shown to every user. The clients strip hides itself when empty.
+    _clients = [];
+  }
+
+  /// The "Get in touch" form from the design: Company Name, Name, Mobile,
+  /// Email, then Confirm.
+  ///
+  /// Tapping the CTA used to fire an inquiry immediately with a canned message
+  /// and no company details, so every lead reached sales as
+  /// `companyName: ""` — unusable. Name/mobile/email are prefilled from the
+  /// profile but stay editable, because the account holder often isn't the
+  /// person who handles the enterprise relationship.
+  void _showGetInTouchSheet() {
+    final companyCtrl = TextEditingController();
+    final nameCtrl = TextEditingController(text: Prefs.getString('fullName'));
+    final phoneCtrl =
+        TextEditingController(text: Prefs.getString('mobile_number'));
+    final emailCtrl = TextEditingController(text: Prefs.getString('email'));
+    final formKey = GlobalKey<FormState>();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        // Lift above the keyboard, or the fields sit under it.
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom,
+        ),
+        child: SafeArea(
+          child: StatefulBuilder(
+            builder: (ctx, setSheet) => Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Get in touch',
+                            style: TextStyle(
+                                fontSize: 17, fontWeight: FontWeight.bold)),
+                        InkWell(
+                          onTap: () => Navigator.pop(ctx),
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                shape: BoxShape.circle),
+                            child: const Icon(Icons.close, size: 18),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _sheetField(companyCtrl, 'Company Name',
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Company name is required'
+                            : null),
+                    _sheetField(nameCtrl, 'Name',
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Name is required'
+                            : null),
+                    _sheetField(phoneCtrl, 'Mobile number',
+                        keyboard: TextInputType.phone,
+                        validator: (v) =>
+                            (v == null || v.trim().length < 10)
+                                ? 'Enter a valid mobile number'
+                                : null),
+                    _sheetField(emailCtrl, 'Email Address',
+                        keyboard: TextInputType.emailAddress,
+                        validator: (v) {
+                          final s = (v ?? '').trim();
+                          if (s.isEmpty) return 'Email is required';
+                          if (!RegExp(r'^\S+@\S+\.\S+$').hasMatch(s)) {
+                            return 'Enter a valid email';
+                          }
+                          return null;
+                        }),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.appColor,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: _isSubmitting
+                            ? null
+                            : () {
+                                if (!formKey.currentState!.validate()) return;
+                                Navigator.pop(ctx);
+                                _submitInquiry(
+                                  companyName: companyCtrl.text,
+                                  name: nameCtrl.text,
+                                  phone: phoneCtrl.text,
+                                  email: emailCtrl.text,
+                                );
+                              },
+                        child: const Text('Confirm',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sheetField(TextEditingController c, String label,
+      {TextInputType? keyboard, String? Function(String?)? validator}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: c,
+        keyboardType: keyboard,
+        validator: validator,
+        decoration: InputDecoration(
+          labelText: label,
+          isDense: true,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+    );
   }
 
   // ─── Submit enterprise inquiry ───
-  Future<void> _submitInquiry() async {
+  Future<void> _submitInquiry({
+    required String companyName,
+    required String name,
+    required String phone,
+    required String email,
+  }) async {
     if (_isSubmitting) return;
     setState(() => _isSubmitting = true);
 
@@ -163,7 +315,10 @@ class _PorterEnterpriseScreenState extends State<PorterEnterpriseScreen>
         },
         body: jsonEncode({
           'source': 'GET_IN_TOUCH',
-          'message': 'User expressed interest via enterprise page',
+          'companyName': companyName,
+          'name': name,
+          'phone': phone,
+          'email': email,
         }),
       );
 
@@ -279,43 +434,51 @@ class _PorterEnterpriseScreenState extends State<PorterEnterpriseScreen>
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      bottomNavigationBar: Container(
-        height: 90,
-        decoration: const BoxDecoration(color: Colors.white),
-        child: Column(
-          children: [
-            const Divider(height: 0.5, color: Colors.grey),
-            const SizedBox(height: 20),
-            GestureDetector(
-              onTap: _isSubmitting ? null : _submitInquiry,
-              child: Container(
-                margin: const EdgeInsets.only(left: 20, right: 20),
-                width: MediaQuery.of(context).size.width,
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                decoration: BoxDecoration(
-                  color: _isSubmitting
-                      ? HexColor("#FF6200").withOpacity(0.6)
-                      : HexColor("#FF6200"),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Center(
-                  child: _isSubmitting
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2))
-                      : Text(
-                          _ctaText,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold),
-                        ),
+      // The bar is a fixed 90px tall with nothing reserved for the system bar,
+      // so on gesture-navigation devices the gesture bar covered the bottom of
+      // the "Get in touch" button and ate the tap. SafeArea adds the device's
+      // real bottom inset below the bar.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          height: 90,
+          decoration: const BoxDecoration(color: Colors.white),
+          child: Column(
+            children: [
+              const Divider(height: 0.5, color: Colors.grey),
+              const SizedBox(height: 20),
+              GestureDetector(
+                // Opens the designed form instead of firing a blank lead.
+                onTap: _isSubmitting ? null : _showGetInTouchSheet,
+                child: Container(
+                  margin: const EdgeInsets.only(left: 20, right: 20),
+                  width: MediaQuery.of(context).size.width,
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  decoration: BoxDecoration(
+                    color: _isSubmitting
+                        ? HexColor("#FF6200").withOpacity(0.6)
+                        : HexColor("#FF6200"),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                                color: Colors.white, strokeWidth: 2))
+                        : Text(
+                            _ctaText,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold),
+                          ),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
       body: _isLoading
@@ -477,11 +640,15 @@ class _PorterEnterpriseScreenState extends State<PorterEnterpriseScreen>
                                   fontWeight: FontWeight.w500),
                             ),
                           ),
+                          // Only render a second line when the copy actually
+                          // has one. The default subtext is a single line
+                          // ending "...at No Additional Charges!", so the old
+                          // hardcoded fallback printed that phrase again
+                          // directly underneath itself.
+                          if (_ctaSubtext.contains('\n'))
                           Center(
                             child: Text(
-                              _ctaSubtext.contains('\n')
-                                  ? _ctaSubtext.split('\n').last
-                                  : "No Additional Charges!",
+                              _ctaSubtext.split('\n').last,
                               style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold),

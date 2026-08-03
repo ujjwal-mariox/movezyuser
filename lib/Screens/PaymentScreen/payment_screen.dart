@@ -20,19 +20,25 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
-      bottomNavigationBar: Container(
-        margin: EdgeInsets.only(bottom: 10),
-        height: 75,
-        padding: const EdgeInsets.symmetric(horizontal: 20,vertical: 12),
-        child: ButtonWidget(
-          height: 50,
-          backgroundColor: AppColors.appColor,
-          borderRadius: BorderRadius.circular(10),
-          textStyle: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 15),
-          text: "Confirm & Pay",onTap: (){
-               pushTo(context, DashboardScreen(),
-             );
-          },
+      // The bar's own 10px margin was the only gap under "Confirm & Pay", so on
+      // gesture-navigation devices the system bar sat on top of the button and
+      // swallowed the tap. SafeArea adds the real device inset instead.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          margin: EdgeInsets.only(bottom: 10),
+          height: 75,
+          padding: const EdgeInsets.symmetric(horizontal: 20,vertical: 12),
+          child: ButtonWidget(
+            height: 50,
+            backgroundColor: AppColors.appColor,
+            borderRadius: BorderRadius.circular(10),
+            textStyle: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 15),
+            text: "Confirm & Pay",onTap: (){
+                 pushTo(context, DashboardScreen(),
+               );
+            },
+          ),
         ),
       ),
       body: SingleChildScrollView(

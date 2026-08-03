@@ -65,6 +65,13 @@ class ChatService {
       IO.OptionBuilder()
           .setTransports(['websocket', 'polling'])
           .setAuth({'token': _token})
+          // forceNew is required: socket_io_client caches connections per URL.
+          // After dispose() the cached, destroyed socket is what the NEXT
+          // IO.io() returns — autoConnect doesn't re-fire, so onConnect never
+          // runs and chat:join is never sent. The second chat opened in a
+          // session would silently never connect (and a re-login would reuse
+          // the previous user's token). Same fix as the driver app.
+          .enableForceNew()
           .enableAutoConnect()
           .enableReconnection()
           .build(),
@@ -73,8 +80,7 @@ class ChatService {
     _socket!.onConnect((_) {
       debugPrint('Chat socket connected');
       isConnected.value = true;
-      _socket!.emit('chat:join', {'bookingId': bookingId});
-      _socket!.emit('chat:read', {'bookingId': bookingId});
+      _joinRoom();
     });
 
     _socket!.onDisconnect((_) {
@@ -99,6 +105,19 @@ class ChatService {
     _socket!.on('chat:error', (data) {
       debugPrint('Chat error: $data');
     });
+
+    // Socket.io does not replay 'connect' for listeners added after the socket
+    // is already connected, so join explicitly in that case.
+    if (_socket!.connected) {
+      isConnected.value = true;
+      _joinRoom();
+    }
+  }
+
+  /// Join the booking room and mark existing messages as read.
+  void _joinRoom() {
+    _socket!.emit('chat:join', {'bookingId': bookingId});
+    _socket!.emit('chat:read', {'bookingId': bookingId});
   }
 
   /// Send a text message

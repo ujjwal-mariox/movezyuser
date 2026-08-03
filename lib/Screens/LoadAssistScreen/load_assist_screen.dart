@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
 import 'package:movezy_user_app/CommonWidgets/prohibited_items_sheet.dart';
@@ -21,13 +22,27 @@ class LoadAssistScreen extends StatefulWidget {
 }
 
 class _LoadAssistScreenState extends State<LoadAssistScreen> {
-  String _goodsType = 'Business or Commercial goods'; // or 'Personal / Household goods'
+  // Prefilled from the goods-type screen's category in initState. Hard
+  // defaulting to Business silently flipped PERSONAL bookings to BUSINESS
+  // whenever the user didn't touch the radio.
+  late String _goodsType;
   String _weightRange = 'below_250'; // 'below_250' or 'above_250'
 
   final List<Map<String, String>> _goodsOptions = [
     {'label': 'Business or Commercial goods', 'icon': '📦'},
     {'label': 'Personal / Household goods', 'icon': '🏠'},
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Mirror the category the goods-type screen already established — only an
+    // explicit tap here should change it. _proceed writes it back, which is a
+    // no-op unless the user actually switched the radio.
+    _goodsType = widget.bookingData.goodsTypeCategory == 'PERSONAL'
+        ? 'Personal / Household goods'
+        : 'Business or Commercial goods';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -146,35 +161,56 @@ class _LoadAssistScreenState extends State<LoadAssistScreen> {
                                     color: Colors.grey.shade100,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
-                                  child: vehicle != null && vehicle.icon != null && vehicle.icon!.startsWith('http')
-                                      ? Image.network(vehicle.icon!, fit: BoxFit.contain,
-                                          errorBuilder: (_, _, _) => Image.asset('assets/auto.png', fit: BoxFit.contain))
-                                      : Image.asset('assets/auto.png', fit: BoxFit.contain),
+                                  // Vehicles carry `image`; `icon` is usually
+                                  // empty, so this always fell back to the
+                                  // auto-rickshaw asset for every vehicle.
+                                  child: Builder(builder: (_) {
+                                    final art = (vehicle?.image?.isNotEmpty == true)
+                                        ? vehicle!.image!
+                                        : (vehicle?.icon ?? '');
+                                    return art.startsWith('http')
+                                        ? Image.network(
+                                            ApiUrls.imageProxyUrl(art),
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (_, _, _) => Image.asset(
+                                                'assets/auto.png',
+                                                fit: BoxFit.contain),
+                                          )
+                                        : Image.asset('assets/auto.png',
+                                            fit: BoxFit.contain);
+                                  }),
                                 ),
                                 const SizedBox(width: 14),
                                 Expanded(
+                                  // Real specs for the SELECTED vehicle. These
+                                  // were hardcoded ("1 Partner" from an
+                                  // if/else with identical branches, "Load up
+                                  // to full truck", "Max weight per item 25Kg",
+                                  // and a max weight taken from the weight
+                                  // picker) — so a bike and a truck advertised
+                                  // identical, invented capacities.
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        "• ${_weightRange == 'above_250' ? '1' : '1'} Partner",
-                                        style: const TextStyle(fontSize: 13),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      const Text(
-                                        "• Load up to full truck",
-                                        style: TextStyle(fontSize: 13),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      const Text(
-                                        "• Max weight per item 25Kg",
-                                        style: TextStyle(fontSize: 13),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        "• Max total weight ${_weightRange == 'above_250' ? '500' : '250'}Kg",
-                                        style: const TextStyle(fontSize: 13),
-                                      ),
+                                      if (vehicle?.description?.isNotEmpty == true) ...[
+                                        Text(
+                                          "• ${vehicle!.description}",
+                                          style: const TextStyle(fontSize: 13),
+                                        ),
+                                        const SizedBox(height: 4),
+                                      ],
+                                      if ((vehicle?.maxWeightKg ?? 0) > 0) ...[
+                                        Text(
+                                          "• Max total weight ${vehicle!.maxWeightKg.toInt()}Kg",
+                                          style: const TextStyle(fontSize: 13),
+                                        ),
+                                        const SizedBox(height: 4),
+                                      ],
+                                      if ((vehicle?.lengthFt ?? 0) > 0)
+                                        Text(
+                                          "• Load space ${vehicle!.lengthFt.toStringAsFixed(1)} x ${vehicle.breadthFt.toStringAsFixed(1)} x ${vehicle.heightFt.toStringAsFixed(1)} ft",
+                                          style: const TextStyle(fontSize: 13),
+                                        ),
                                     ],
                                   ),
                                 ),
@@ -223,8 +259,12 @@ class _LoadAssistScreenState extends State<LoadAssistScreen> {
             ),
           ),
 
-          // Bottom button
+          // Bottom button. The SafeArea already supplies the bottom inset (so
+          // no MediaQuery padding is added here — that would double it and open
+          // a dead gap), but top:false stops it ALSO re-applying the still
+          // unconsumed status-bar inset as a phantom gap above the button.
           SafeArea(
+            top: false,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: SizedBox(
@@ -339,6 +379,10 @@ class _LoadAssistScreenState extends State<LoadAssistScreen> {
   void _proceed() {
     // Update booking data with goods info and go to review
     final updatedData = widget.bookingData.copyWith(
+      // The band is a real declared value, not just prose: Review derives the
+      // billed weight from its quantity steppers, and the two used to be able
+      // to contradict each other with nothing reconciling them.
+      goodsWeight: _weightRange == 'above_250' ? 250 : 0,
       goodsDescription: '$_goodsType | Weight: ${_weightRange == 'above_250' ? 'Above 250kg' : 'Below 250kg'}',
       goodsTypeCategory: _goodsType.contains('Business') ? 'BUSINESS' : 'PERSONAL',
     );

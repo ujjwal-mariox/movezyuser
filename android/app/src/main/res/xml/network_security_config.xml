@@ -5,5 +5,10 @@
         <domain includeSubdomains="true">10.0.2.2</domain>
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">103.194.228.68</domain>
+        <!-- No entry is needed for the live API: it is served over HTTPS
+             (https://movezybackend.onrender.com), which Android permits by
+             default. A cleartext exception for the bare EC2 IP was added while
+             testing against plain HTTP and has been removed — with it, login
+             OTPs and JWTs travelled unencrypted. -->
     </domain-config>
 </network-security-config>

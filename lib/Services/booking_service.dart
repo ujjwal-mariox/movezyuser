@@ -228,6 +228,17 @@ class FareEstimate {
   final double distanceKm;
   final double durationMin;
 
+  /// Real free-loading terms from FareConfig — the same values the server bills
+  /// from. The app used to hardcode these (and contradicted itself: "50 mins"
+  /// and "65 mins" on one screen, "60 minutes" in the terms) while the server
+  /// actually bills after ~10 minutes.
+  final int freeWaitingMinutes;
+  final double waitingChargePerMin;
+
+  /// Coins this trip earns, from the same service that credits them. The app
+  /// used to derive `fare / 100` itself and promised half the real rate.
+  final int coinsToEarn;
+
   FareEstimate({
     required this.baseFare,
     required this.distanceCharge,
@@ -243,10 +254,20 @@ class FareEstimate {
     required this.finalFare,
     required this.distanceKm,
     required this.durationMin,
+    this.freeWaitingMinutes = 0,
+    this.waitingChargePerMin = 0,
+    this.coinsToEarn = 0,
   });
 
   factory FareEstimate.fromJson(Map<String, dynamic> json) {
     final fare = json['fareBreakdown'] ?? json;
+    // The estimate applies the promo AFTER building fareBreakdown, so its
+    // totalDiscount is present-but-0 there and the real figure is the
+    // top-level promoDiscount. `??` doesn't fall through on 0, so prefer
+    // whichever is non-zero — or View Breakup never shows the discount row.
+    final breakdownDiscount =
+        (fare['totalDiscount'] ?? fare['discount'] ?? 0).toDouble();
+    final topLevelDiscount = (json['promoDiscount'] ?? 0).toDouble();
     return FareEstimate(
       baseFare: (fare['baseFare'] ?? 0).toDouble(),
       distanceCharge: (fare['distanceCharge'] ?? 0).toDouble(),
@@ -258,10 +279,18 @@ class FareEstimate {
       tollCharges: (fare['tollCharges'] ?? 0).toDouble(),
       gst: (fare['gstAmount'] ?? fare['gst'] ?? json['gst'] ?? 0).toDouble(),
       totalFare: (fare['subtotal'] ?? fare['totalFare'] ?? json['totalFare'] ?? 0).toDouble(),
-      discount: (fare['totalDiscount'] ?? fare['discount'] ?? json['promoDiscount'] ?? 0).toDouble(),
+      discount:
+          breakdownDiscount > 0 ? breakdownDiscount : topLevelDiscount,
       finalFare: (json['finalAmount'] ?? json['finalFare'] ?? fare['finalFare'] ?? 0).toDouble(),
       distanceKm: (json['distanceKm'] ?? fare['distanceKm'] ?? 0).toDouble(),
       durationMin: (json['durationMin'] ?? fare['durationMin'] ?? 0).toDouble(),
+      freeWaitingMinutes:
+          (fare['freeWaitingMinutes'] ?? json['freeWaitingMinutes'] ?? 0)
+              .toInt(),
+      coinsToEarn: (json['coinsToEarn'] as num?)?.toInt() ?? 0,
+      waitingChargePerMin:
+          (fare['waitingChargePerMin'] ?? json['waitingChargePerMin'] ?? 0)
+              .toDouble(),
     );
   }
 }
@@ -384,10 +413,15 @@ class BookingService {
     required Map<String, dynamic> drop,
     String? serviceType,
     String? goodsTypeId,
+    /// Intermediate stops. Without these the prices on this screen leave out
+    /// both the detour distance and the per-stop charge, so the fare jumps on
+    /// the next screen.
+    List<Map<String, dynamic>>? stops,
   }) async {
     final body = {
       'pickup': pickup,
       'drop': drop,
+      if (stops != null && stops.isNotEmpty) 'stops': stops,
       if (serviceType != null) 'serviceType': serviceType,
       if (goodsTypeId != null) 'goodsTypeId': goodsTypeId,
     };
@@ -415,15 +449,29 @@ class BookingService {
     List<Map<String, dynamic>>? addons,
     String? promoCode,
     List<Map<String, dynamic>>? stops,
+    // Floors are sent as data, never as a price. The server prices PER_FLOOR
+    // add-ons from these and ignores any charge the client tries to send.
+    int? pickupFloor,
+    int? dropFloor,
+    bool? isLiftAvailable,
+    /// Declared load in kg. PER_KG add-ons are priced from this; without it the
+    /// server can only bill a single flat unit.
+    int? goodsWeight,
   }) async {
     final body = {
       'pickup': pickup,
       'drop': drop,
+      if (goodsWeight != null && goodsWeight > 0) 'goodsWeight': goodsWeight,
       'vehicleTypeId': vehicleTypeId,
       'serviceType': serviceType ?? 'WITHIN_CITY',
       if (addons != null && addons.isNotEmpty) 'addons': addons,
       if (promoCode != null) 'promoCode': promoCode,
       if (stops != null && stops.isNotEmpty) 'stops': stops,
+      'loadingUnloading': {
+        'pickupFloor': pickupFloor ?? 0,
+        'dropFloor': dropFloor ?? 0,
+        'isLiftAvailable': isLiftAvailable ?? false,
+      },
     };
 
     final res = await http.post(
@@ -445,13 +493,35 @@ class BookingService {
     required String vehicleTypeId,
     required String goodsType,
     required String paymentMethod,
-    double? distanceKm,
-    double? durationMin,
+    // The backend prices the trip from these, so they must be the real quoted
+    // metrics. Required rather than defaulted: a fallback here silently books
+    // (and charges for) a trip nobody took.
+    required double distanceKm,
+    required double durationMin,
     List<Map<String, dynamic>>? addons,
     String? promoCode,
     String? goodsDescription,
     String? serviceType,
     List<Map<String, dynamic>>? stops,
+    // Consignee (who receives the parcel). Optional — when a phone is given the
+    // backend SMSs them at pickup, since they aren't an app user.
+    String? receiverName,
+    String? receiverPhone,
+    // Scheduled pickup. When set, the backend creates the booking as DRAFT and
+    // the scheduled-dispatch job sends it to drivers near the pickup time.
+    String? scheduledDate,
+    String? scheduledTimeSlotId,
+    // Declared floors — the server prices PER_FLOOR add-ons from these. Must
+    // match what was quoted, or the customer is charged a different figure to
+    // the one they agreed to.
+    int? pickupFloor,
+    int? dropFloor,
+    bool? isLiftAvailable,
+    /// Must match the weight the quote was priced on.
+    int? goodsWeight,
+    /// Number of packages declared on the quantity steppers. Stored by the
+    /// backend and shown to the driver, but nothing ever sent it.
+    int? goodsQuantity,
   }) async {
     final body = {
       'pickupLocation': { 'lat': pickup['lat'], 'lng': pickup['lng'] },
@@ -461,13 +531,28 @@ class BookingService {
       'vehicleTypeId': vehicleTypeId,
       'goodsType': goodsType,
       'paymentMethod': paymentMethod,
-      'distanceKm': distanceKm ?? 10.0,
-      'durationMin': durationMin ?? 25.0,
+      'distanceKm': distanceKm,
+      'durationMin': durationMin,
+      'loadingUnloading': {
+        'pickupFloor': pickupFloor ?? 0,
+        'dropFloor': dropFloor ?? 0,
+        'isLiftAvailable': isLiftAvailable ?? false,
+      },
+      if (goodsWeight != null && goodsWeight > 0) 'goodsWeight': goodsWeight,
+      if (goodsQuantity != null && goodsQuantity > 0)
+        'goodsQuantity': goodsQuantity,
       if (serviceType != null) 'serviceType': serviceType,
       if (addons != null && addons.isNotEmpty) 'addons': addons,
       if (promoCode != null) 'promoCode': promoCode,
       if (goodsDescription != null) 'goodsDescription': goodsDescription,
       if (stops != null && stops.isNotEmpty) 'stops': stops,
+      if (receiverName != null && receiverName.trim().isNotEmpty)
+        'receiverName': receiverName.trim(),
+      if (receiverPhone != null && receiverPhone.trim().isNotEmpty)
+        'receiverPhone': receiverPhone.trim(),
+      if (scheduledDate != null) 'scheduledDate': scheduledDate,
+      if (scheduledTimeSlotId != null)
+        'scheduledTimeSlotId': scheduledTimeSlotId,
     };
 
     final res = await http.post(
@@ -547,6 +632,49 @@ class BookingService {
     throw Exception(data['message'] ?? 'Failed to create payment order');
   }
 
+  /// Pickup time slots available on [date] (defaults to today).
+  ///
+  /// The backend filters out slots that are already past (or inside the minimum
+  /// notice window) and refuses dates beyond the advance-booking limit, so an
+  /// empty list genuinely means "nothing bookable that day".
+  static Future<List<TimeSlotOption>> getTimeSlots({DateTime? date}) async {
+    final q = date != null
+        ? '?date=${date.toIso8601String().split('T').first}'
+        : '';
+    try {
+      final res = await http
+          .get(Uri.parse('${ApiUrls.timeSlotsUrl}$q'), headers: _headers())
+          .timeout(const Duration(seconds: 20));
+      final data = json.decode(res.body);
+      if (res.statusCode == 200 && data['success'] == true) {
+        final list = (data['data'] as List?) ?? [];
+        return list
+            .map((e) => TimeSlotOption.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+      }
+    } catch (_) {
+      // Scheduling is optional — a failure here must not block booking now.
+    }
+    return [];
+  }
+
+  /// Pay for a booking from the wallet balance. The backend debits the wallet
+  /// and marks the booking PAID; returns (ok, message). Nothing is charged
+  /// unless this succeeds — the booking must not be treated as paid otherwise.
+  static Future<(bool, String)> payWithWallet(String bookingId) async {
+    try {
+      final res = await http.post(
+        Uri.parse(ApiUrls.bookingWalletPayUrl(bookingId)),
+        headers: _headers(),
+      ).timeout(const Duration(seconds: 30));
+      final data = json.decode(res.body);
+      final ok = res.statusCode == 200 && data['success'] == true;
+      return (ok, (data['message'] ?? '').toString());
+    } catch (e) {
+      return (false, 'Wallet payment failed: $e');
+    }
+  }
+
   /// Verify an online booking payment server-side (HMAC signature check).
   /// Returns true only if the backend confirms the payment.
   static Future<bool> verifyBookingPayment({
@@ -582,6 +710,29 @@ class BookingService {
   }
 
   /// Cancel a booking
+  /// What cancelling right now would refund, WITHOUT cancelling.
+  ///
+  /// The refund percentages are admin-configurable and stage-dependent, so the
+  /// app must ask rather than state a number of its own. Returns null when the
+  /// preview can't be loaded — callers then warn generically instead of
+  /// inventing a figure.
+  static Future<Map<String, dynamic>?> cancellationPreview(String bookingId) async {
+    try {
+      final res = await http.get(
+        Uri.parse('${ApiUrls.baseUrlApi}/bookings/$bookingId/cancellation-preview'),
+        headers: _headers(),
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return null;
+      final data = json.decode(res.body);
+      if (data is Map && data['success'] == true && data['data'] is Map) {
+        return Map<String, dynamic>.from(data['data'] as Map);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<Map<String, dynamic>> cancelBooking(String bookingId, {String? cancellationReasonId}) async {
     final body = <String, dynamic>{};
     if (cancellationReasonId != null) {
@@ -597,6 +748,41 @@ class BookingService {
       return data;
     }
     throw Exception(data['message'] ?? 'Failed to cancel booking');
+  }
+
+  /// Add an intermediate stop to a booking that is already under way.
+  ///
+  /// The server re-routes pickup → stops → drop, re-prices the trip and returns
+  /// the delta, so no price is ever sent from here. Returns the `data` object:
+  /// { stops, distanceKm, durationMin, previousFare, finalFare, fareDifference,
+  ///   payableNow, message }. Throws with the backend's own sentence so the
+  ///   caller can show a rejection verbatim rather than paraphrasing it.
+  static Future<Map<String, dynamic>> addBookingStop(
+    String bookingId, {
+    required String address,
+    required double lat,
+    required double lng,
+    String? contactName,
+    String? contactPhone,
+  }) async {
+    final res = await http.post(
+      Uri.parse(ApiUrls.bookingAddStopUrl(bookingId)),
+      headers: _headers(),
+      body: json.encode({
+        'address': address,
+        'lat': lat,
+        'lng': lng,
+        if (contactName != null && contactName.trim().isNotEmpty)
+          'contactName': contactName.trim(),
+        if (contactPhone != null && contactPhone.trim().isNotEmpty)
+          'contactPhone': contactPhone.trim(),
+      }),
+    ).timeout(const Duration(seconds: 30));
+    final data = json.decode(res.body);
+    if (res.statusCode == 200 && data['success'] == true) {
+      return Map<String, dynamic>.from(data['data'] ?? {});
+    }
+    throw Exception(data['message'] ?? 'Failed to add stop');
   }
 
   /// Get cancellation reasons from backend
@@ -672,4 +858,28 @@ class CancellationReason {
       sortOrder: json['sortOrder'] ?? 0,
     );
   }
+}
+
+/// A bookable pickup slot, as returned by /bookings/time-slots.
+class TimeSlotOption {
+  final String id;
+  final String label; // "2:00 PM"
+  final String startTime; // "14:00"
+  /// Absolute instant for this slot on the requested date — the backend
+  /// resolves it so the client never has to reassemble "HH:mm" + a date.
+  final DateTime? scheduledAt;
+
+  TimeSlotOption({
+    required this.id,
+    required this.label,
+    required this.startTime,
+    this.scheduledAt,
+  });
+
+  factory TimeSlotOption.fromJson(Map<String, dynamic> j) => TimeSlotOption(
+        id: (j['_id'] ?? '').toString(),
+        label: (j['label'] ?? '').toString(),
+        startTime: (j['startTime'] ?? '').toString(),
+        scheduledAt: DateTime.tryParse((j['scheduledAt'] ?? '').toString()),
+      );
 }

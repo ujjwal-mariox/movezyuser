@@ -201,11 +201,32 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
     _searchFocus.unfocus();
   }
 
+  /// Placeholder/transient labels that must never escape as a real address.
+  static const _placeholderAddresses = {
+    'Move the map to select location',
+    'Loading...',
+    'Address not found',
+    '',
+  };
+
+  bool get _addressResolved =>
+      !_placeholderAddresses.contains(_selectedAddress.trim());
+
   void _confirmLocation() {
+    // This used to return _selectedAddress unconditionally. When reverse
+    // geocoding hadn't finished (or failed), the UI placeholder itself was
+    // returned and persisted as the booking's address — which is why real
+    // bookings carry a drop address of "Move the map to select location".
+    // Coordinates are always known here, so they're the honest fallback.
+    final address = _addressResolved
+        ? _selectedAddress
+        : '${_selectedLocation.latitude.toStringAsFixed(5)}, '
+            '${_selectedLocation.longitude.toStringAsFixed(5)}';
+
     Navigator.pop(
       context,
       MapPickerResult(
-        address: _selectedAddress,
+        address: address,
         lat: _selectedLocation.latitude,
         lng: _selectedLocation.longitude,
       ),
@@ -214,6 +235,12 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // The device's real bottom system inset (gesture bar / 3-button nav). The
+    // confirm card below used to end in a hardcoded 28px guess, so on any phone
+    // whose inset is larger the "Confirm Location" button sat under the system
+    // UI and could not be tapped.
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: Stack(
@@ -385,7 +412,10 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
           // ─── MY LOCATION FAB ─────────────────────────
           Positioned(
             right: 16,
-            bottom: 200,
+            // Shifts by the same inset as the card below it, so it keeps the
+            // clearance it was designed with instead of being swallowed by the
+            // card once that card grows.
+            bottom: 200 + bottomInset,
             child: FloatingActionButton.small(
               heroTag: 'myLocation',
               backgroundColor: Colors.white,
@@ -406,7 +436,10 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
             right: 0,
             bottom: 0,
             child: Container(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+              // 28 is the gap the design asks for; the device's bottom inset is
+              // ADDED to it (never hardcoded) so the Confirm button clears the
+              // gesture bar / nav buttons on every device.
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 28 + bottomInset),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: const BorderRadius.only(

@@ -118,6 +118,9 @@ class _ChatScreenState extends State<ChatScreen> {
                         fontSize: 17,
                         fontWeight: FontWeight.bold,
                       ),
+                      // maxLines: ellipsis alone still lets a long name soft-wrap,
+                      // and the app bar only leaves 53px below its 47px top padding.
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),

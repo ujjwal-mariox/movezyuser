@@ -17,35 +17,48 @@ class OrderStatusTimeline extends StatelessWidget {
     this.scheduledPickupTime,
   });
 
-  static const _steps = [
-    _StepData('CONFIRMED', 'Order confirmed', Icons.check_circle),
-    _StepData('ASSIGNED', 'Partner assigned', Icons.person_pin),
-    _StepData('DRIVER_ARRIVED', 'On the way to pickup', Icons.local_shipping),
-    _StepData('PICKED', 'In-transit', Icons.moving),
-    _StepData('COMPLETED', 'Delivered', Icons.done_all),
+  /// The single status → words mapping for the app.
+  ///
+  /// Status keys are the values `booking.status` actually takes (booking.model
+  /// enum: DRAFT, SEARCHING, ASSIGNED, DRIVER_ARRIVED, PICKED, IN_PROGRESS,
+  /// COMPLETED, CANCELLED). The first step used to be keyed to "CONFIRMED",
+  /// which is not one of them.
+  ///
+  /// Each stage carries ONE string, printed both as the step label here and as
+  /// the status headline by [labelFor]. That is deliberate: the step keyed to
+  /// DRIVER_ARRIVED used to read "On the way to pickup" while the headline on
+  /// the same screen said the driver had arrived, and the step keyed to
+  /// ASSIGNED read "Partner assigned" while the headline said they were on
+  /// their way — the labels were shifted one stage off the status they mapped
+  /// to. Sharing the string makes that class of disagreement impossible.
+  static const List<OrderStage> stages = [
+    OrderStage('SEARCHING', 'Finding a driver', Icons.search),
+    OrderStage('ASSIGNED', 'Driver on the way to pickup', Icons.local_shipping),
+    OrderStage('DRIVER_ARRIVED', 'Driver arrived at pickup', Icons.person_pin),
+    OrderStage('PICKED', 'Goods picked up, in transit', Icons.moving),
+    OrderStage('COMPLETED', 'Delivered', Icons.done_all),
   ];
 
-  int get _currentIndex {
-    // Map backend status to step index
-    switch (currentStatus) {
-      case 'SEARCHING':
-        return 0; // Confirmed but searching
-      case 'CONFIRMED':
-        return 0;
-      case 'ASSIGNED':
-        return 1;
-      case 'DRIVER_ARRIVED':
-        return 2;
-      case 'PICKED':
-      case 'IN_PROGRESS':
-        return 3;
-      case 'COMPLETED':
-        return 4;
-      case 'CANCELLED':
-        return -1;
-      default:
-        return 0;
-    }
+  /// A cancelled booking has no stage — it left the flow.
+  static const String cancelledLabel = 'Order has been cancelled';
+
+  /// Index into [stages] for a backend status; -1 when cancelled.
+  static int stepIndexFor(String status) {
+    if (status == 'CANCELLED') return -1;
+    // IN_PROGRESS shares the PICKED stage — the goods are aboard either way.
+    final key = status == 'IN_PROGRESS' ? 'PICKED' : status;
+    final i = stages.indexWhere((s) => s.status == key);
+    // Anything unrecognised (DRAFT, or a status added later) sits at the start
+    // rather than being given a stage it hasn't reached.
+    return i < 0 ? 0 : i;
+  }
+
+  /// The one place a booking status is turned into words. Any screen printing a
+  /// status headline alongside this widget must use it, so the headline and the
+  /// highlighted step always say the same thing.
+  static String labelFor(String status) {
+    if (status == 'CANCELLED') return cancelledLabel;
+    return stages[stepIndexFor(status)].label;
   }
 
   @override
@@ -54,7 +67,7 @@ class OrderStatusTimeline extends StatelessWidget {
       return _cancelledWidget();
     }
 
-    final idx = _currentIndex;
+    final idx = stepIndexFor(currentStatus);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
@@ -82,9 +95,9 @@ class OrderStatusTimeline extends StatelessWidget {
             ),
             const SizedBox(height: 16),
           ],
-          for (int i = 0; i < _steps.length; i++) ...[
+          for (int i = 0; i < stages.length; i++) ...[
             _buildStep(i, idx),
-            if (i < _steps.length - 1) _buildConnector(i, idx),
+            if (i < stages.length - 1) _buildConnector(i, idx),
           ],
         ],
       ),
@@ -92,7 +105,7 @@ class OrderStatusTimeline extends StatelessWidget {
   }
 
   Widget _buildStep(int stepIndex, int activeIndex) {
-    final step = _steps[stepIndex];
+    final step = stages[stepIndex];
     final isCompleted = stepIndex <= activeIndex;
     final isCurrent = stepIndex == activeIndex;
 
@@ -136,7 +149,7 @@ class OrderStatusTimeline extends StatelessWidget {
           ),
         ),
         // "+N" badge for collapsed steps
-        if (stepIndex == 0 && activeIndex == 0 && _steps.length > 2)
+        if (stepIndex == 0 && activeIndex == 0 && stages.length > 2)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
@@ -144,7 +157,7 @@ class OrderStatusTimeline extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
-              "+${_steps.length - 2}",
+              "+${stages.length - 2}",
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -185,7 +198,7 @@ class OrderStatusTimeline extends StatelessWidget {
           const SizedBox(width: 12),
           const Expanded(
             child: Text(
-              "Order has been cancelled",
+              cancelledLabel,
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -199,9 +212,16 @@ class OrderStatusTimeline extends StatelessWidget {
   }
 }
 
-class _StepData {
+/// One stage of a booking's life, keyed by the backend status that puts the
+/// booking in it. See [OrderStatusTimeline.stages].
+class OrderStage {
+  /// Value of `booking.status` this stage represents.
   final String status;
+
+  /// The words for this stage — used for the stepper row AND for the status
+  /// headline callers print elsewhere on the same screen.
   final String label;
+
   final IconData icon;
-  const _StepData(this.status, this.label, this.icon);
+  const OrderStage(this.status, this.label, this.icon);
 }

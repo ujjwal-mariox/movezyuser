@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:hexcolor/hexcolor.dart' show HexColor;
 import 'package:http/http.dart' as http;
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
+import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
+import 'package:movezy_user_app/Screens/HelpSupportScreen/support_tickets_screen.dart';
+import 'package:movezy_user_app/Services/support_service.dart';
 import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 
 class HelpSupportScreen extends StatefulWidget {
@@ -18,9 +22,59 @@ class HelpSupportScreen extends StatefulWidget {
 class _HelpSupportScreenState extends State<HelpSupportScreen> {
   List<dynamic> _recentOrders = [];
   bool _loadingOrders = true;
+
+  /// Why the recent orders could not be loaded. Null when the request
+  /// succeeded — an empty [_recentOrders] then really does mean "no orders".
+  String? _ordersError;
+
+  /// False when retrying cannot possibly help (no session token).
+  bool _ordersCanRetry = true;
+
+  /// Support number from GET /v1/api/support-contact
+  /// (`{ success, data: { supportPhone } }`, set by admin at
+  /// /admin/config/support-contact). Empty means no number is configured, and
+  /// the call control is then not rendered at all — there is no fallback.
+  String _supportPhone = '';
+
   String? _selectedCategory;
   String? _selectedQuestion;
-  bool _feedbackSubmitted = false;
+
+  /// The confirmation currently shown in place of the "Was this helpful?"
+  /// block, or null while nothing has been submitted. This was a bare bool that
+  /// always read "Thank you for your feedback!", which was the wrong sentence
+  /// for a raised ticket and — worse — was set even when the ticket failed.
+  String? _confirmation;
+
+  // FAQs come from the server (seeded into the FAQ collection) rather than
+  // being baked into the app, so an answer can be corrected without shipping a
+  // release. Note there is no admin CRUD for FAQs yet — editing means touching
+  // the DB, and getFAQs caches for an hour, so a change is not instant.
+  // Cached per category for the life of the screen.
+  final Map<String, List<Faq>> _faqCache = {};
+  bool _loadingFaqs = false;
+  String? _faqError;
+
+  Future<void> _loadFaqs(String category) async {
+    if (_faqCache.containsKey(category)) return;
+    setState(() {
+      _loadingFaqs = true;
+      _faqError = null;
+    });
+    try {
+      final faqs = await SupportService.getFaqs(category);
+      if (!mounted) return;
+      setState(() {
+        _faqCache[category] = faqs;
+        _loadingFaqs = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingFaqs = false;
+        _faqError = 'Could not load help articles.';
+      });
+    }
+  }
 
   // ─── Issue Categories ───
   static const List<Map<String, dynamic>> _issueCategories = [
@@ -32,50 +86,39 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     {'id': 'other', 'icon': Icons.help_outline, 'label': 'Other', 'color': Color(0xFF607D8B)},
   ];
 
-  // ─── FAQ per category ───
-  static const Map<String, List<Map<String, String>>> _categoryFaqs = {
-    'driver_late': [
-      {'q': 'My driver hasn\'t arrived yet', 'a': 'If the driver is delayed beyond the estimated time, you can track their live location. If the delay exceeds 10 minutes, you may cancel without charge. We sincerely apologize for the inconvenience.'},
-      {'q': 'Driver is not moving', 'a': 'The driver may be stuck in traffic. Please wait 5 minutes. If there\'s no movement, contact the driver directly through the app or raise a ticket for reassignment.'},
-      {'q': 'Will I be charged extra for delays?', 'a': 'No, you will not be charged extra due to driver delays. The fare is based on the original estimate at the time of booking.'},
-    ],
-    'payment': [
-      {'q': 'I was charged incorrectly', 'a': 'If you see an incorrect charge, please check the fare breakdown in your trip details. If there\'s still a discrepancy, raise a ticket and we\'ll investigate and refund within 3-5 business days.'},
-      {'q': 'My refund hasn\'t been processed', 'a': 'Refunds typically take 5-7 business days. If it\'s been longer, please check with your bank. You can also track refund status in the Wallet section.'},
-      {'q': 'Payment failed but amount deducted', 'a': 'If your payment failed but the amount was deducted, it will be auto-refunded within 24-48 hours. If not, please share the transaction ID via a support ticket.'},
-    ],
-    'account': [
-      {'q': 'I can\'t log into my account', 'a': 'Try logging in with your registered phone number and verify the OTP. If you\'re still having trouble, try clearing the app cache or reinstalling the app.'},
-      {'q': 'How to update my phone number?', 'a': 'Go to Profile → Edit Profile to update your phone number. You\'ll need to verify the new number with an OTP.'},
-      {'q': 'How to delete my account?', 'a': 'To delete your account, go to Profile → Help & Support and raise a ticket with subject "Account Deletion". We\'ll process it within 48 hours.'},
-    ],
-    'cancellation': [
-      {'q': 'Why was I charged a cancellation fee?', 'a': 'A cancellation fee applies when a driver has already been assigned and is en route. This compensates the driver for their time and fuel.'},
-      {'q': 'How to cancel my booking?', 'a': 'Go to your active booking → Tap "Cancel". If a driver hasn\'t been assigned yet, cancellation is free. After assignment, a small fee may apply.'},
-      {'q': 'Can I get a refund after cancellation?', 'a': 'If you paid in advance, the refund (minus any cancellation fee) will be credited to your wallet or original payment method within 3-5 business days.'},
-    ],
-    'damaged': [
-      {'q': 'My goods were damaged during delivery', 'a': 'We\'re sorry to hear that. Please raise a ticket with photos of the damaged goods and your order ID. Our team will investigate and process compensation within 5-7 business days.'},
-      {'q': 'How is compensation calculated?', 'a': 'Compensation is based on the declared value of goods at the time of booking and the extent of damage. Insured deliveries receive full declared value coverage.'},
-    ],
-    'other': [
-      {'q': 'How to contact the driver?', 'a': 'You can call or message the driver directly from the active booking screen. Tap the phone icon next to the driver\'s name.'},
-      {'q': 'How to share my ride details?', 'a': 'On the tracking screen, tap the "Share" button to send live tracking details to anyone via WhatsApp, SMS, or other apps.'},
-      {'q': 'App is crashing or not working', 'a': 'Try clearing the app cache, updating to the latest version, or reinstalling. If the issue persists, please raise a support ticket with your device details.'},
-    ],
-  };
-
   @override
   void initState() {
     super.initState();
     _fetchRecentOrders();
+    _fetchSupportPhone();
   }
 
+  /// Load the three most recent bookings.
+  ///
+  /// A failure used to be silently reported as "No recent orders", which hid
+  /// the Report Issue button behind a sentence that was not true — exactly when
+  /// something was wrong and the customer most needed it. Failure and emptiness
+  /// are now distinct, and a failure offers Retry.
   Future<void> _fetchRecentOrders() async {
+    if (mounted) {
+      setState(() {
+        _loadingOrders = true;
+        _ordersError = null;
+        _ordersCanRetry = true;
+      });
+    }
     try {
       final token = Prefs.getString('token');
       if (token.isEmpty) {
-        if (mounted) setState(() => _loadingOrders = false);
+        // GET /bookings sits behind verifyUserToken (booking.routes.ts), so
+        // without a token there is nothing to retry.
+        if (mounted) {
+          setState(() {
+            _loadingOrders = false;
+            _ordersCanRetry = false;
+            _ordersError = 'Sign in to see your recent orders.';
+          });
+        }
         return;
       }
       final response = await http.get(
@@ -84,18 +127,90 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-      );
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        final data = json['data'];
-        final List bookings = data['bookings'] ?? [];
-        if (mounted) setState(() { _recentOrders = bookings; _loadingOrders = false; });
+      ).timeout(const Duration(seconds: 20));
+
+      dynamic decoded;
+      try {
+        decoded = jsonDecode(response.body);
+      } catch (_) {
+        decoded = null;
+      }
+
+      // This endpoint answers {success, data:{bookings, pagination}}, and
+      // {success:false, message} on failure (booking.controller
+      // getUserBookings).
+      final ok = response.statusCode == 200 &&
+          decoded is Map &&
+          decoded['success'] == true;
+      if (!mounted) return;
+      if (ok) {
+        final data = decoded['data'];
+        final List bookings =
+            (data is Map ? data['bookings'] as List? : null) ?? [];
+        setState(() {
+          _recentOrders = bookings;
+          _loadingOrders = false;
+        });
       } else {
-        if (mounted) setState(() => _loadingOrders = false);
+        final message = decoded is Map ? decoded['message'] : null;
+        setState(() {
+          _loadingOrders = false;
+          _ordersError = (message is String && message.trim().isNotEmpty)
+              ? message.trim()
+              : "Couldn't load your recent orders.";
+        });
       }
     } catch (e) {
       debugPrint('Help support fetch orders error: $e');
-      if (mounted) setState(() => _loadingOrders = false);
+      if (mounted) {
+        setState(() {
+          _loadingOrders = false;
+          _ordersError =
+              "Couldn't load your recent orders. Check your connection and try again.";
+        });
+      }
+    }
+  }
+
+  /// Load the support number the admin configured.
+  ///
+  /// Best-effort on purpose: if this fails, [_supportPhone] stays empty and the
+  /// call control simply is not shown. There is no fallback number to fall back
+  /// to, and inventing one would dial nobody.
+  Future<void> _fetchSupportPhone() async {
+    try {
+      final response = await http
+          .get(Uri.parse('${ApiUrls.baseUrlApi}/support-contact'))
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) return;
+      final decoded = jsonDecode(response.body);
+      final data = decoded is Map ? decoded['data'] : null;
+      final phone = data is Map ? data['supportPhone'] : null;
+      if (!mounted) return;
+      setState(() => _supportPhone = phone is String ? phone.trim() : '');
+    } catch (e) {
+      debugPrint('Support contact fetch error: $e');
+    }
+  }
+
+  /// Dial the configured support number.
+  ///
+  /// The admin may store it formatted (+91-98…, spaces, brackets), so strip
+  /// everything a `tel:` URI cannot carry while still showing the configured
+  /// string to the user.
+  Future<void> _callSupport() async {
+    final dialable = _supportPhone.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (dialable.isEmpty) return;
+    bool opened = false;
+    try {
+      opened = await launchUrl(Uri(scheme: 'tel', path: dialable));
+    } catch (e) {
+      debugPrint('Support dial error: $e');
+    }
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open the dialer')),
+      );
     }
   }
 
@@ -182,6 +297,13 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
             const SizedBox(height: 5),
 
+            // ─── CALL SUPPORT ───
+            // Only rendered when the admin has configured a number.
+            if (_supportPhone.isNotEmpty) ...[
+              _buildCallSupportCard(),
+              const SizedBox(height: 16),
+            ],
+
             // ─── RECENT ORDERS (real data) ───
             _buildRecentOrdersSection(),
 
@@ -215,6 +337,48 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     );
   }
 
+  // ─── CALL SUPPORT ───
+  Widget _buildCallSupportCard() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: InkWell(
+        onTap: _callSupport,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.call_outlined, size: 22, color: HexColor("#EE6A2C")),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Call support",
+                        style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(_supportPhone,
+                        style: const TextStyle(
+                            fontSize: 11.5, color: Colors.grey),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 20, color: Colors.grey.shade500),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ─── RECENT ORDERS ───
   Widget _buildRecentOrdersSection() {
     return Padding(
@@ -222,10 +386,66 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Read replies to tickets you've raised. Without this the app could
+          // only ever CREATE tickets — customers had no way to see the answer.
+          InkWell(
+            onTap: () => pushTo(context, const SupportTicketsScreen()),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.forum_outlined, size: 22, color: HexColor("#EE6A2C")),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("My support tickets",
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        SizedBox(height: 2),
+                        Text("See replies from our team",
+                            style: TextStyle(fontSize: 11.5, color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, size: 20, color: Colors.grey.shade500),
+                ],
+              ),
+            ),
+          ),
           const Text("Need help with recent orders?", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
           const SizedBox(height: 10),
           if (_loadingOrders)
             const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(strokeWidth: 2)))
+          else if (_ordersError != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12)),
+              child: Column(
+                children: [
+                  Text(_ordersError!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 13, color: Colors.red)),
+                  if (_ordersCanRetry) ...[
+                    const SizedBox(height: 6),
+                    TextButton.icon(
+                      onPressed: _fetchRecentOrders,
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ],
+              ),
+            )
           else if (_recentOrders.isEmpty)
             Container(
               width: double.infinity, padding: const EdgeInsets.all(20),
@@ -247,11 +467,32 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     final pickupAddr = order['pickup']?['address'] ?? '';
     final dropAddr = order['drop']?['address'] ?? '';
 
+    // The badge printed the raw database enum — customers saw "DRIVER_ARRIVED"
+    // and "IN_PROGRESS". The colour test also checked for statuses the backend
+    // never emits ('ACTIVE', 'DRIVER_ASSIGNED'), so every in-flight trip fell
+    // through to grey.
+    const statusLabels = {
+      'DRAFT': 'Scheduled',
+      'SEARCHING': 'Finding driver',
+      'ASSIGNED': 'Driver assigned',
+      'DRIVER_ARRIVED': 'Driver arrived',
+      'PICKED': 'Picked up',
+      'IN_PROGRESS': 'On the way',
+      'COMPLETED': 'Completed',
+      'CANCELLED': 'Cancelled',
+    };
+    final statusLabel = statusLabels[status] ??
+        status.replaceAll('_', ' ').toLowerCase();
+
     Color statusColor = Colors.grey;
     if (status == 'COMPLETED') {
       statusColor = Colors.green;
-    } else if (status == 'CANCELLED') statusColor = Colors.red;
-    else if (status == 'ACTIVE' || status == 'DRIVER_ASSIGNED') statusColor = Colors.blue;
+    } else if (status == 'CANCELLED') {
+      statusColor = Colors.red;
+    } else if (['ASSIGNED', 'DRIVER_ARRIVED', 'PICKED', 'IN_PROGRESS', 'SEARCHING']
+        .contains(status)) {
+      statusColor = Colors.blue;
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -261,12 +502,19 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Text("#$bookingNumber", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-            const Spacer(),
+            // Expanded (replacing the Spacer, which did the same job here): as a
+            // bare Row child this got unbounded width, so a long booking number
+            // could never ellipsize next to the status badge.
+            Expanded(
+              child: Text("#$bookingNumber",
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+            ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-              child: Text(status, style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w600)),
+              child: Text(statusLabel, style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w600)),
             ),
           ]),
           const SizedBox(height: 8),
@@ -316,15 +564,26 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
+            // childAspectRatio derives the cell height from its width, so on a
+            // 320dp screen the cell is only ~81dp tall while the icon + label
+            // need ~86dp once a two-word label wraps at a large text scale.
+            // 0.9 makes the cell taller than its fixed content.
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3, childAspectRatio: 1.1, mainAxisSpacing: 10, crossAxisSpacing: 10,
+              crossAxisCount: 3, childAspectRatio: 0.9, mainAxisSpacing: 10, crossAxisSpacing: 10,
             ),
             itemCount: _issueCategories.length,
             itemBuilder: (context, index) {
               final cat = _issueCategories[index];
               final isSelected = _selectedCategory == cat['id'];
               return InkWell(
-                onTap: () => setState(() { _selectedCategory = cat['id']; _selectedQuestion = null; _feedbackSubmitted = false; }),
+                onTap: () {
+                  setState(() {
+                    _selectedCategory = cat['id'];
+                    _selectedQuestion = null;
+                    _confirmation = null;
+                  });
+                  _loadFaqs(cat['id'] as String);
+                },
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.white, borderRadius: BorderRadius.circular(14),
@@ -354,7 +613,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
   // ─── FAQ FOR SELECTED CATEGORY ───
   Widget _buildCategoryFaqSection() {
-    final faqs = _categoryFaqs[_selectedCategory] ?? [];
+    final faqs = _faqCache[_selectedCategory] ?? const <Faq>[];
     final catLabel = _issueCategories.firstWhere((c) => c['id'] == _selectedCategory)['label'];
 
     return Padding(
@@ -364,10 +623,45 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         children: [
           Text("Common questions — $catLabel", style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
           const SizedBox(height: 10),
+          if (_loadingFaqs)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else if (_faqError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(_faqError!,
+                        style: const TextStyle(fontSize: 13, color: Colors.red)),
+                  ),
+                  TextButton(
+                    onPressed: () => _loadFaqs(_selectedCategory!),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+          else if (faqs.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                "No help articles here yet — raise a ticket below and we'll help.",
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+            ),
           ...faqs.map((faq) {
-            final isSelected = _selectedQuestion == faq['q'];
+            final isSelected = _selectedQuestion == faq.question;
             return InkWell(
-              onTap: () => setState(() { _selectedQuestion = faq['q']; _feedbackSubmitted = false; }),
+              onTap: () => setState(() { _selectedQuestion = faq.question; _confirmation = null; }),
               child: Container(
                 width: double.infinity, margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -377,7 +671,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                   border: isSelected ? Border.all(color: AppColors.appColor) : null,
                 ),
                 child: Row(children: [
-                  Expanded(child: Text(faq['q']!, style: TextStyle(fontSize: 13, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500))),
+                  Expanded(child: Text(faq.question, style: TextStyle(fontSize: 13, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500))),
                   Icon(isSelected ? Icons.keyboard_arrow_down : Icons.arrow_forward_ios, size: 16, color: Colors.grey),
                 ]),
               ),
@@ -390,9 +684,10 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
   // ─── ANSWER WITH AUTO-RESOLUTION GUIDANCE ───
   Widget _buildAnswerSection() {
-    final faqs = _categoryFaqs[_selectedCategory] ?? [];
-    final faq = faqs.firstWhere((f) => f['q'] == _selectedQuestion, orElse: () => {'q': '', 'a': ''});
-    if (faq['a']?.isEmpty ?? true) return const SizedBox.shrink();
+    final faqs = _faqCache[_selectedCategory] ?? const <Faq>[];
+    final faq = faqs.firstWhere((f) => f.question == _selectedQuestion,
+        orElse: () => Faq(id: '', question: '', answer: ''));
+    if (faq.answer.isEmpty) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -411,7 +706,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
               const Text("Resolution", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.green)),
             ]),
             const SizedBox(height: 10),
-            Text(faq['a']!, style: const TextStyle(fontSize: 13, height: 1.5, color: Color(0xFF444444))),
+            Text(faq.answer, style: const TextStyle(fontSize: 13, height: 1.5, color: Color(0xFF444444))),
           ],
         ),
       ),
@@ -420,16 +715,21 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
   // ─── TAP-BASED FEEDBACK ───
   Widget _buildTapFeedback() {
-    if (_feedbackSubmitted) {
+    final confirmation = _confirmation;
+    if (confirmation != null) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Container(
           width: double.infinity, padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(12)),
-          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: const [
-            Icon(Icons.check_circle, color: Colors.green),
-            SizedBox(width: 8),
-            Text("Thank you for your feedback!", style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Icon(Icons.check_circle, color: Colors.green),
+            const SizedBox(width: 8),
+            // Flexible: as a bare Row child this got unbounded width, so beside
+            // the icon it overflowed a narrow card instead of wrapping.
+            Flexible(
+              child: Text(confirmation, style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
+            ),
           ]),
         ),
       );
@@ -448,7 +748,13 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             const SizedBox(width: 16),
             _feedbackButton('👎', 'No', Colors.red),
             const SizedBox(width: 16),
-            _feedbackButton('💬', 'Need More Help', AppColors.appColor),
+            // Flexible: the three chips are sized by their labels, and as a bare
+            // Row child this widest one had unbounded width, so at a large text
+            // scale the trio outgrew the card. Loose fit keeps its natural width
+            // whenever it fits and only clamps it when it would not.
+            Flexible(
+              child: _feedbackButton('💬', 'Need More Help', AppColors.appColor),
+            ),
           ]),
         ]),
       ),
@@ -486,15 +792,36 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           if (bookingId != null && bookingId.isNotEmpty) 'bookingId': bookingId,
         }),
       ).timeout(const Duration(seconds: 15));
-      final resBody = json.decode(res.body);
+
+      dynamic decoded;
+      try {
+        decoded = json.decode(res.body);
+      } catch (_) {
+        decoded = null;
+      }
+
+      // POST /support/tickets answers {success, message, data} and
+      // {success:false, message} on failure (support.controller createTicket).
       final ok = (res.statusCode == 200 || res.statusCode == 201) &&
-          resBody['success'] == true;
+          decoded is Map &&
+          decoded['success'] == true;
+      final serverMessage = decoded is Map ? decoded['message'] : null;
       if (!mounted) return ok;
-      setState(() => _feedbackSubmitted = true);
+
+      // Only confirm a ticket that exists. This used to flip unconditionally,
+      // so a rejected request still turned the panel green and thanked the
+      // customer — and hid the button that would have let them try again.
+      if (ok) {
+        setState(() => _confirmation =
+            'Ticket raised — replies appear under "My support tickets".');
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(ok
             ? 'Ticket created. A support agent will contact you shortly.'
-            : 'Could not create ticket. Please try again.'),
+            : (serverMessage is String && serverMessage.trim().isNotEmpty
+                ? serverMessage.trim()
+                : 'Could not create ticket. Please try again.')),
         backgroundColor: ok ? Colors.green : Colors.red,
       ));
       return ok;
@@ -605,8 +932,20 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           _raiseTicket();
           return;
         }
-        setState(() => _feedbackSubmitted = true);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        // Actually record the vote. This used to thank the customer for
+        // feedback that was posted nowhere and counted by nothing.
+        final faqs = _faqCache[_selectedCategory] ?? const <Faq>[];
+        final faq = faqs.firstWhere((f) => f.question == _selectedQuestion,
+            orElse: () => Faq(id: '', question: '', answer: ''));
+        if (faq.id.isNotEmpty) {
+          // Fire-and-forget: they already have their answer, so a failed vote
+          // must not interrupt them.
+          SupportService.rateFaq(faq.id, label != 'No').catchError((e) {
+            debugPrint('faq feedback failed: $e');
+          });
+        }
+        setState(() => _confirmation = 'Thank you for your feedback!');
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Thanks for your feedback!'),
           backgroundColor: Colors.green,
         ));
@@ -620,7 +959,12 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         child: Column(children: [
           Text(emoji, style: const TextStyle(fontSize: 20)),
           const SizedBox(height: 4),
-          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color)),
+          // maxLines/ellipsis: without them the label lays out at its intrinsic
+          // width and overflows the chip once the caller bounds it.
+          Text(label,
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
         ]),
       ),
     );

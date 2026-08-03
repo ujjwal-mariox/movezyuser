@@ -26,16 +26,22 @@ class _FeedBackThanksScreenState extends State<FeedBackThanksScreen> {
     );
 
     return Scaffold(
-      bottomNavigationBar: Container(
-        margin: EdgeInsets.only(bottom: 10),
-        height: 75,
-        padding: const EdgeInsets.symmetric(horizontal: 20,vertical: 12),
-        child: ButtonWidget(
-          backgroundColor: HexColor("#015EA3"),
-          height: 50,
-          text: "Ok",onTap: (){
-          replaceRoute(context, DashboardScreen());
-        },
+      // SafeArea(top: false): the bar applies no inset itself, so the 10pt
+      // design margin left the "Ok" button under the gesture bar / nav buttons.
+      // The 10 stays; the device inset is added on top of it.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          margin: EdgeInsets.only(bottom: 10),
+          height: 75,
+          padding: const EdgeInsets.symmetric(horizontal: 20,vertical: 12),
+          child: ButtonWidget(
+            backgroundColor: HexColor("#015EA3"),
+            height: 50,
+            text: "Ok",onTap: (){
+              replaceRoute(context, DashboardScreen());
+            },
+          ),
         ),
       ),
       body: Container(

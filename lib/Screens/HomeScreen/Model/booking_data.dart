@@ -24,6 +24,11 @@ class BookingData {
   double? dropLat;
   double? dropLng;
 
+  /// Intermediate stops between pickup and drop, in visiting order.
+  /// Each entry: {address, lat, lng}. The backend already models these
+  /// (booking.stops) and charges per stop — the app just never sent any.
+  List<Map<String, dynamic>> stops;
+
   /// Goods category (e.g. "Boxes /Parcels", "Furniture")
   String? goodsCategory;
 
@@ -54,6 +59,11 @@ class BookingData {
   /// Goods description
   String? goodsDescription;
 
+  /// Weight the customer declared on LoadAssist's band, in kg (0 = "below
+  /// 250kg"). Review seeds its quantity steppers from this so the two screens
+  /// can't contradict each other.
+  int? goodsWeight;
+
   BookingData({
     this.selectedVehicle,
     this.serviceType,
@@ -63,6 +73,7 @@ class BookingData {
     this.pickupLng,
     this.dropLat,
     this.dropLng,
+    this.stops = const [],
     this.goodsCategory,
     this.goodsTypeId,
     this.goodsTypeCategory,
@@ -73,6 +84,7 @@ class BookingData {
     this.fareEstimate,
     this.paymentMethod = 'CASH',
     this.goodsDescription,
+    this.goodsWeight,
   });
 
   /// Whether a vehicle has already been chosen (via home screen tap)
@@ -88,6 +100,7 @@ class BookingData {
     double? pickupLng,
     double? dropLat,
     double? dropLng,
+    List<Map<String, dynamic>>? stops,
     String? goodsCategory,
     String? goodsTypeId,
     String? goodsTypeCategory,
@@ -98,6 +111,7 @@ class BookingData {
     FareEstimate? fareEstimate,
     String? paymentMethod,
     String? goodsDescription,
+    int? goodsWeight,
   }) {
     return BookingData(
       selectedVehicle: selectedVehicle ?? this.selectedVehicle,
@@ -107,6 +121,7 @@ class BookingData {
       pickupLat: pickupLat ?? this.pickupLat,
       pickupLng: pickupLng ?? this.pickupLng,
       dropLat: dropLat ?? this.dropLat,
+      stops: stops ?? this.stops,
       dropLng: dropLng ?? this.dropLng,
       goodsCategory: goodsCategory ?? this.goodsCategory,
       goodsTypeId: goodsTypeId ?? this.goodsTypeId,
@@ -118,6 +133,7 @@ class BookingData {
       fareEstimate: fareEstimate ?? this.fareEstimate,
       paymentMethod: paymentMethod ?? this.paymentMethod,
       goodsDescription: goodsDescription ?? this.goodsDescription,
+      goodsWeight: goodsWeight ?? this.goodsWeight,
     );
   }
 }

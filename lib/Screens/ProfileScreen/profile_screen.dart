@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:movezy_user_app/CommonWidgets/legal_sheet.dart';
 import 'package:hexcolor/hexcolor.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -13,14 +14,14 @@ import 'package:movezy_user_app/Screens/LoginScreen/login_screen.dart';
 import 'package:movezy_user_app/Screens/PorterEnterpriseScreen/porter_enterprise_screen.dart';
 import 'package:movezy_user_app/Screens/ProfileScreen/Model/user_profile_response.dart';
 import 'package:movezy_user_app/Screens/ProfileScreen/ProfileApiService/profile_api_service.dart';
-import 'package:movezy_user_app/Screens/ProfileScreen/ProfileApiService/update_profile_api_service.dart';
 import 'package:movezy_user_app/Screens/ProfileScreen/update_profile_screen.dart';
 import 'package:movezy_user_app/Screens/ReferAndEarn/refer_and_earn_Screen.dart';
 import 'package:movezy_user_app/Screens/SavedAddress/saved_address.dart';
+import 'package:movezy_user_app/Services/referral_service.dart';
 import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 import 'package:movezy_user_app/Utils/PermissionsManager/permissions_manager.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
-import 'package:movezy_user_app/Utils/ShareManager/share_manager.dart';
+import 'package:share_plus/share_plus.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -32,39 +33,105 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   UserData? userData;
   bool isLoading = true;
+
+  /// Why the profile could not be loaded, when it could not be loaded at all.
+  /// Null once a profile is on screen.
+  String? _profileError;
+
   File? _selectedImage;
   final ImagePicker _imagePicker = ImagePicker();
   bool isUploadingImage = false;
   String? _userGstin;
-  String _selectedLanguage = 'English';
 
-  static const String _termsContent = '''
-1. By using Movezy, you agree to our terms of service.
-2. All deliveries are subject to availability and verification.
-3. Cancellation charges may apply after a driver has been assigned.
-4. Users must ensure goods are packed properly before pickup.
-5. Restricted or prohibited items are not allowed for delivery.
-6. Movezy is not responsible for items not declared at the time of booking.
-7. Payment must be completed before or upon delivery as per the selected method.
-8. Movezy reserves the right to modify pricing and terms at any time.
-''';
+  /// The user's REAL referral code, generated and owned by the backend
+  /// (GET /user/referral/stats). Empty until it loads — never substituted.
+  String _referralCode = '';
 
-  static const String _privacyContent = '''
-1. We collect your name, phone, email, and location to provide delivery services.
-2. Your data is encrypted and stored securely.
-3. We do not sell your personal information to third parties.
-4. Location data is used only to facilitate pickups and deliveries.
-5. Payment information is processed through secure payment gateways.
-6. You can request account deletion by contacting support.
-7. We may use anonymized data for analytics and service improvement.
-8. Push notifications are used for order updates and promotions.
-''';
+  /// Reward amounts as the server defines them (REFERRER_REWARD_AMOUNT /
+  /// REFEREE_REWARD_AMOUNT in referral.controller). Null until loaded, and the
+  /// UI then omits the figure rather than printing a guess.
+  double? _referrerReward;
+  double? _refereeReward;
+  Future<void>? _referralLoad;
+
+  // Terms/Privacy text and the sheet now live in
+  // CommonWidgets/legal_sheet.dart, shared with the login and OTP screens
+  // whose links to them were dead.
 
   @override
   void initState() {
     super.initState();
     _fetchUserProfile();
     _fetchUserGst();
+    _fetchReferral();
+  }
+
+  /// Load the referral code + reward amounts.
+  ///
+  /// This screen advertises "Refer and earn" and offers a Share button, but it
+  /// never loaded any referral data — so the share message went out with no
+  /// code in it and no reward could ever be attributed. The same call also
+  /// carries the reward figures, which were hardcoded here.
+  /// De-duplicated: Share tapped while the initState load is still in flight
+  /// joins that request instead of starting a second one — or, worse, giving up
+  /// and reporting a missing code that was about to arrive.
+  Future<void> _fetchReferral() =>
+      _referralLoad ??=
+          _loadReferral().whenComplete(() => _referralLoad = null);
+
+  Future<void> _loadReferral() async {
+    try {
+      final data = await ReferralService.getReferralStats();
+      if (!mounted) return;
+      setState(() {
+        _referralCode = data.referralCode;
+        _referrerReward = data.referrerRewardAmount;
+        _refereeReward = data.refereeRewardAmount;
+      });
+    } catch (e) {
+      debugPrint('Referral fetch error: $e');
+    }
+  }
+
+  /// Share an invite that actually carries the user's referral code.
+  ///
+  /// Previously this opened ShareManager's generic "share the app" sheet, whose
+  /// message is a plain Play Store blurb with no code — the friend had nothing
+  /// to enter, so POST /user/referral/apply could never fire and neither side
+  /// was ever rewarded. If the code hasn't loaded we retry once and, failing
+  /// that, say so rather than sharing a codeless message.
+  Future<void> _shareReferral() async {
+    if (_referralCode.isEmpty) await _fetchReferral();
+    if (!mounted) return;
+
+    if (_referralCode.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't load your referral code. Please try again."),
+        ),
+      );
+      return;
+    }
+
+    // Only mention the friend's bonus when the server told us what it is.
+    final bonus = _refereeReward;
+    final message = bonus != null
+        ? 'Hey! Use my Movezy referral code $_referralCode when you sign up '
+            'and get ₹${bonus.toInt()} in your Movezy wallet.'
+        : 'Hey! Use my Movezy referral code $_referralCode when you sign up '
+            'on Movezy.';
+
+    try {
+      // ignore: deprecated_member_use
+      await Share.share(message, subject: 'Movezy Referral');
+    } catch (e) {
+      debugPrint('Referral share error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open the share sheet')),
+        );
+      }
+    }
   }
 
   Future<void> _fetchUserGst() async {
@@ -112,26 +179,97 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+/// Load the profile.
+///
+/// A failure used to be indistinguishable from success here: the service
+/// returned null, `userData` stayed null, and the layout below rendered
+/// "User Name / No email / No phone" as though those were the account's real
+/// details — with no way back short of restarting the app. The service now
+/// throws [ProfileApiException] with the server's message, and this records it
+/// so the screen can offer a genuine error state.
 Future<void> _fetchUserProfile() async {
   try {
-    final response = await ProfileApiService().getUserProfile(context: context);
-    if (response != null && mounted) {
-      setState(() {
-        userData = response.data;
-        isLoading = false;
-      });
-    } else if (mounted) {
-      setState(() {
-        isLoading = false;
-      });
-    }
+    final response = await ProfileApiService().getUserProfile();
+    if (!mounted) return;
+    setState(() {
+      userData = response.data;
+      _profileError = null;
+      isLoading = false;
+    });
+  } on ProfileApiException catch (e) {
+    if (!mounted) return;
+    setState(() {
+      isLoading = false;
+      // A background refresh (after a photo upload or an edit) must not replace
+      // a profile that is already on screen with an error page, so the error
+      // state is only raised when there is nothing to fall back on.
+      if (userData == null) _profileError = e.message;
+    });
   } catch (e) {
     debugPrint('Error fetching profile: $e');
-    if (mounted) {
-      setState(() {
-        isLoading = false;
-      });
+    if (!mounted) return;
+    setState(() {
+      isLoading = false;
+      if (userData == null) {
+        _profileError = 'Something went wrong while loading your profile.';
+      }
+    });
+  }
+}
+
+/// Re-run every request this screen depends on, from the error state's Retry.
+void _reloadProfile() {
+  setState(() {
+    isLoading = true;
+    _profileError = null;
+  });
+  _fetchUserProfile();
+  _fetchUserGst();
+  _fetchReferral();
+}
+
+/// Upload ONLY the profile photo.
+///
+/// This used to go through UpdateProfileApiService.updateUserProfile, which
+/// rejects an empty fullName before it sends anything
+/// (update_profile_api_service.dart:88 — "Full name is required"). Every fresh
+/// signup has no name yet, so changing the photo was impossible for exactly the
+/// users most likely to try. That service also puts `fullName` in the body
+/// unconditionally, so simply dropping the guard would have posted an empty
+/// name and blanked it server-side.
+///
+/// PUT /user/profile whitelists each field independently (user.controller
+/// editUser) and takes the file from `req.files`, so the image alone is a
+/// complete, valid request.
+Future<bool> _uploadProfileImage(File image) async {
+  try {
+    final token = Prefs.getString('token');
+    if (token.isEmpty) return false;
+
+    final request =
+        http.MultipartRequest('PUT', Uri.parse(ApiUrls.userProfileUrl))
+          ..headers['Authorization'] = 'Bearer $token'
+          ..files.add(
+              await http.MultipartFile.fromPath('profileImage', image.path));
+
+    final response = await http.Response.fromStream(
+      await request.send().timeout(const Duration(seconds: 30)),
+    );
+
+    if (response.statusCode != 200) {
+      debugPrint('Profile image upload failed: '
+          '${response.statusCode} ${response.body}');
+      return false;
     }
+
+    // Backend envelope is { code, message, data }; code 1 means success.
+    final body = jsonDecode(response.body);
+    return body is Map && (body['code'] ?? 1) == 1;
+  } catch (e) {
+    // Swallowed here so the caller reports an upload failure rather than the
+    // enclosing handler's "Error picking image", which blames the wrong step.
+    debugPrint('Profile image upload error: $e');
+    return false;
   }
 }
 
@@ -174,15 +312,9 @@ Future<void> _pickAndUploadImage() async {
         isUploadingImage = true;
       });
 
-      // Upload the image
-      bool success = await UpdateProfileApiService().updateUserProfile(
-        context: context,
-        fullName: userData?.fullName ?? '',
-        email: userData?.email ?? '',
-        gender: userData?.gender,
-        dob: userData?.dob ?? '',
-        profileImage: imageFile,
-      );
+      // Upload the image on its own — no name/email/dob ride along, so this
+      // works on an account that has none of them yet.
+      bool success = await _uploadProfileImage(imageFile);
 
       if (!mounted) return;
 
@@ -199,7 +331,9 @@ Future<void> _pickAndUploadImage() async {
           );
         }
       } else {
-        _selectedImage = null;
+        // Was a bare assignment outside setState, so a failed upload left the
+        // picked photo on screen looking as though it had been saved.
+        setState(() => _selectedImage = null);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Failed to update profile image")),
@@ -241,6 +375,8 @@ Future<void> _pickAndUploadImage() async {
                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.appColor),
               ),
             )
+          : userData == null
+          ? _profileLoadErrorState(context)
           : LayoutBuilder(
               builder: (context, constraints) {
                 return SingleChildScrollView(
@@ -265,6 +401,69 @@ Future<void> _pickAndUploadImage() async {
                 );
               },
             ),
+    );
+  }
+
+  // --------------------- LOAD ERROR --------------------------
+
+  /// Shown when the profile could not be loaded at all.
+  ///
+  /// Previously the screen fell through to its normal layout with `userData`
+  /// null, so a failed request looked exactly like an account with nothing
+  /// filled in and there was no way to retry.
+  Widget _profileLoadErrorState(BuildContext context) {
+    return SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off, size: 56, color: Colors.black26),
+              const SizedBox(height: 16),
+              const Text(
+                "Couldn't load your profile",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _profileError ?? 'Please try again.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: Colors.black54),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _reloadProfile,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Retry'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.appColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              // An expired or revoked token fails every retry, and the logout
+              // row lives in the layout this state replaces — without this the
+              // only way out would be reinstalling the app.
+              TextButton(
+                onPressed: () => _logout(context),
+                child: const Text(
+                  'Log out',
+                  style: TextStyle(color: Colors.black54),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -402,8 +601,14 @@ Widget _header(BuildContext context) {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // This branch only renders once a profile has actually
+                  // loaded, so the old `?? "User Name"` fallback was both dead
+                  // (userData is non-null here) and wrong for the case it did
+                  // hit — an account with no name yet rendered an empty line.
                   Text(
-                    userData?.fullName ?? "User Name",
+                    (userData?.fullName ?? '').isNotEmpty
+                        ? userData!.fullName
+                        : "Add your name",
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
@@ -603,13 +808,20 @@ Widget _header(BuildContext context) {
             _listItem(
               icon: "assets/gst.png",
               title: "GST Details",
+              // Flexible: trailing is dropped straight into _listItem's Row as a
+              // non-flex child, so this server-driven GSTIN got unbounded width —
+              // and having no spaces it could not soft-wrap either.
               trailing: _userGstin != null && _userGstin!.isNotEmpty
-                  ? Text(
-                      _userGstin!,
-                      style: const TextStyle(
-                        color: Color(0xFFE96D2D),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                  ? Flexible(
+                      child: Text(
+                        _userGstin!,
+                        style: const TextStyle(
+                          color: Color(0xFFE96D2D),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     )
                   : InkWell(
@@ -631,34 +843,29 @@ Widget _header(BuildContext context) {
               ),
             ),
             InkWell(
-              onTap: () {
-                ShareManager.showShareOptionsSheet(context);
-              },
+              onTap: _shareReferral,
               child: _listItem(
                 icon: "assets/refer_and_earn.png",
-                title: "Refer and earn 200",
+                // The amount now comes from the server
+                // (referrerRewardAmount on /user/referral/stats) instead of
+                // being written into the label. It was hardcoded — first as
+                // "₹200", then as "₹100" to match the constant — so any change
+                // to the programme silently made this screen lie. Until it
+                // loads, the row simply omits the figure.
+                title: _referrerReward != null
+                    ? "Refer and earn ₹${_referrerReward!.toInt()}"
+                    : "Refer and earn",
                 trailing: _smallBtn("Share"),
               ),
             ),
-            // ─── Language Selection ───
-            InkWell(
-              onTap: () => _showLanguageSheet(context),
-              child: _listItem(
-                icon: "assets/headphones.png",
-                title: "Language",
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_selectedLanguage, style: const TextStyle(color: Color(0xFFE96D2D), fontSize: 13, fontWeight: FontWeight.w600)),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.arrow_forward_ios, size: 16),
-                  ],
-                ),
-              ),
-            ),
+            // The language selector was removed. It offered English, Hindi,
+            // Tamil, Telugu, Kannada, Bengali and Marathi, but the user app has
+            // no localization at all — picking one only repainted the label, so
+            // it promised six languages the app cannot speak. Restore this once
+            // the strings are actually translated.
             // ─── Terms & Conditions ───
             InkWell(
-              onTap: () => _showLegalSheet(context, 'Terms & Conditions', _termsContent),
+              onTap: () => showLegalSheet(context, 'Terms & Conditions', LegalText.terms),
               child: _listItem(
                 icon: "assets/gst.png",
                 title: "Terms & Conditions",
@@ -667,7 +874,7 @@ Widget _header(BuildContext context) {
             ),
             // ─── Privacy Policy ───
             InkWell(
-              onTap: () => _showLegalSheet(context, 'Privacy Policy', _privacyContent),
+              onTap: () => showLegalSheet(context, 'Privacy Policy', LegalText.privacy),
               child: _listItem(
                 icon: "assets/gst.png",
                 title: "Privacy Policy",
@@ -756,23 +963,31 @@ Widget _header(BuildContext context) {
               ),
               const SizedBox(width: 16),
 
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    "Movezy Enterprise",
-                    style: TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 14),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    "Upgrade to Business Solution",
-                    style: TextStyle(color: Colors.black54, fontSize: 12),
-                  ),
-                ],
+              // Expanded: as a bare Row child this Column got unbounded width, so
+              // the 28-char subtitle laid out at its intrinsic width and could
+              // never ellipsize. The Spacer goes with it — Expanded already takes
+              // the slack that used to push the chevron to the right edge.
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      "Movezy Enterprise",
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 14),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      "Upgrade to Business Solution",
+                      style: TextStyle(color: Colors.black54, fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
-
-              Spacer(),
 
               Icon(Icons.arrow_forward_ios_sharp, size: 18,)
             ],
@@ -782,27 +997,29 @@ Widget _header(BuildContext context) {
     }
 
 
-  // ---------------------- Logout Card -------------------------
+  // ---------------------- Logout -------------------------
+
+  /// Clear the session and return to login. Extracted from the logout row so
+  /// the profile-load error state can offer the same escape hatch.
+  Future<void> _logout(BuildContext context) async {
+    await Prefs.setBool('check_log_in', false);
+    await Prefs.setString('mobile_number', "");
+    await Prefs.setString('token', "");
+    await Prefs.setString('userId', "");
+    await Prefs.load();
+    Prefs.loadData();
+
+    if (!mounted) return;
+    // ignore: use_build_context_synchronously
+    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => LoginScreen()),
+      (Route<dynamic> route) => false,
+    );
+  }
+
   Widget logoutCard(BuildContext context) {
     return InkWell(
-      onTap: () async
-      {
-        await Prefs.setBool('check_log_in', false);
-        await Prefs.setString('mobile_number', "");
-        await Prefs.setString('token', "");
-        await Prefs.setString('userId', "");
-        await Prefs.load();
-        Prefs.loadData();
-
-        if (!mounted) return;
-        if (mounted) {
-          // ignore: use_build_context_synchronously
-          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (context) => LoginScreen()),
-            (Route<dynamic> route) => false,
-          );
-        }
-      },
+      onTap: () => _logout(context),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 16),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
@@ -839,109 +1056,10 @@ Widget _header(BuildContext context) {
   }
 
 
-  // ─── Language Selection Sheet ───
-  void _showLanguageSheet(BuildContext context) {
-    final languages = ['English', 'Hindi', 'Tamil', 'Telugu', 'Kannada', 'Bengali', 'Marathi'];
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.all(20),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Select Language', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                InkWell(
-                  onTap: () => Navigator.pop(ctx),
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(color: Colors.grey.shade100, shape: BoxShape.circle),
-                    child: const Icon(Icons.close, size: 18),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ...languages.map((lang) => InkWell(
-              onTap: () {
-                setState(() => _selectedLanguage = lang);
-                Navigator.pop(ctx);
-              },
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-                margin: const EdgeInsets.only(bottom: 4),
-                decoration: BoxDecoration(
-                  color: _selectedLanguage == lang ? const Color(0xFFFFF3EC) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                  border: _selectedLanguage == lang ? Border.all(color: const Color(0xFFFF6200)) : null,
-                ),
-                child: Row(
-                  children: [
-                    Text(lang, style: TextStyle(fontSize: 15, fontWeight: _selectedLanguage == lang ? FontWeight.w600 : FontWeight.w400)),
-                    const Spacer(),
-                    if (_selectedLanguage == lang) const Icon(Icons.check_circle, color: Color(0xFFFF6200), size: 20),
-                  ],
-                ),
-              ),
-            )),
-            const SizedBox(height: 10),
-          ],
-        ),
-      ),
-    );
-  }
+
 
   // ─── Legal Content Sheet (T&C / Privacy) ───
-  void _showLegalSheet(BuildContext context, String title, String content) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) => Container(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
-        padding: const EdgeInsets.all(20),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                InkWell(
-                  onTap: () => Navigator.pop(ctx),
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(color: Colors.grey.shade100, shape: BoxShape.circle),
-                    child: const Icon(Icons.close, size: 18),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Flexible(
-              child: SingleChildScrollView(
-                child: Text(content, style: const TextStyle(fontSize: 14, height: 1.6, color: Color(0xFF444444))),
-              ),
-            ),
-            const SizedBox(height: 10),
-          ],
-        ),
-      ),
-    );
-  }
+
 
   void showServiceSheet(BuildContext context) {
     final gstinController = TextEditingController();
@@ -1043,7 +1161,19 @@ Widget _header(BuildContext context) {
                       child: TextFormField(
                         controller: gstinController,
                         textCapitalization: TextCapitalization.characters,
+                        // Same rules as the Review Booking GSTIN sheet
+                        // (review_booking_screen.dart `_showGstSheet`): exactly
+                        // 15 alphanumeric characters. This sheet used to accept
+                        // any non-empty string, so the two entry points for the
+                        // same field disagreed about what a GSTIN is.
+                        maxLength: 15,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'[A-Za-z0-9]'),
+                          ),
+                        ],
                         decoration: InputDecoration(
+                          counterText: '',
                           hintText: 'GSTIN',
                           hintStyle: TextStyle(
                             color: HexColor("#B8B8B8"),
@@ -1071,9 +1201,13 @@ Widget _header(BuildContext context) {
                           ? null
                           : () async {
                               final gstin = gstinController.text.trim();
-                              if (gstin.isEmpty) {
+                              if (gstin.length != 15) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Please enter your GSTIN')),
+                                  const SnackBar(
+                                    content: Text(
+                                      'Please enter a valid 15-character GSTIN',
+                                    ),
+                                  ),
                                 );
                                 return;
                               }

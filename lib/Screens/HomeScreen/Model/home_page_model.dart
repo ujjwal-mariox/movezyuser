@@ -59,7 +59,9 @@ class HomeVehicleType {
     );
   }
 
-  /// Formatted capacity string e.g. "10kg, 2 Feet" or "1.2 Ton, 7 Feet"
+  /// Formatted capacity, e.g. "10kg" or "1.2 Ton".
+  /// (This used to claim it produced "10kg, 2 Feet" — it never did; the
+  /// dimension half was only in the docstring.)
   String get capacityLabel {
     if (maxWeightKg >= 1000) {
       final tons = (maxWeightKg / 1000).toStringAsFixed(1);
@@ -67,6 +69,12 @@ class HomeVehicleType {
     }
     return "${maxWeightKg.toInt()}kg";
   }
+
+  /// Cargo length, e.g. "7 Feet" — the second half the design shows next to the
+  /// weight. Empty when the catalog has no dimensions for this type, in which
+  /// case the caller should fall back rather than print "0 Feet".
+  String get dimensionsLabel =>
+      lengthFt > 0 ? "${lengthFt.toStringAsFixed(0)} Feet" : "";
 }
 
 class PromoBanner {

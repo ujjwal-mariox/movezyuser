@@ -28,31 +28,37 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey[200],
-      bottomNavigationBar: Container(
-        color: Colors.white,
-        height: 95,
-        child: Column(
-          children: [
-            Container(
-              height: 1,
-              width: MediaQuery.of(context).size.width,
-              color: HexColor("#212020").withOpacity(0.2),
-            ),
-
-            SizedBox(height: 20,),
-
-            // Sign In Button
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: ButtonWidget(
-                text: "Save",
-                onTap: (){
-                },
+      // SafeArea(top: false): this bar is a raw fixed-height Container, which
+      // Scaffold gives no bottom inset, so "Save" sat under the Android gesture
+      // bar / nav buttons and could not be tapped.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          color: Colors.white,
+          height: 95,
+          child: Column(
+            children: [
+              Container(
+                height: 1,
+                width: MediaQuery.of(context).size.width,
+                color: HexColor("#212020").withOpacity(0.2),
               ),
-            ),
 
-            SizedBox(height: 20,),
-          ],
+              SizedBox(height: 20,),
+
+              // Sign In Button
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: ButtonWidget(
+                  text: "Save",
+                  onTap: (){
+                  },
+                ),
+              ),
+
+              SizedBox(height: 20,),
+            ],
+          ),
         ),
       ),
       body: SingleChildScrollView(

@@ -88,7 +88,12 @@ class _BookingTermsSheet extends StatelessWidget {
                   ]),
                   const SizedBox(height: 8),
                   _numberedItem(2, null, [
-                    _boldInline("Price Revision:", " Price may change due to modification of goods, quantity, service type or changes in pickup/drop location, date & time that was mentioned by the customer while booking an order or any extra waiting charges (Rs. 3 / min) that may be leviable for the vehicle waiting beyond 60 minutes."),
+                    // Don't restate the waiting terms here. This said "Rs. 3 /
+                    // min beyond 60 minutes" — a THIRD set of numbers, and
+                    // wrong: the fare summary on the booking screen shows the
+                    // real free minutes and per-minute rate straight from the
+                    // server. One source of truth beats three guesses.
+                    _boldInline("Price Revision:", " Price may change due to modification of goods, quantity, service type or changes in pickup/drop location, date & time that was mentioned by the customer while booking an order, or any extra waiting charges that may be leviable if the vehicle waits beyond the free loading/unloading time shown in your fare summary."),
                   ]),
                   const SizedBox(height: 20),
 

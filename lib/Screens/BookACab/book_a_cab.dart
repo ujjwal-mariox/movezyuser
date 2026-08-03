@@ -184,7 +184,17 @@ class _BookACabState extends State<BookACab> {
               bottom: 0,
               left: 0,
               right: 0,
-              child: SizedBox(
+              // NOTE: this screen is unreachable — nothing in lib/ constructs
+              // BookACab and it has no entry in the router. A gesture-bar inset
+              // was added here and then reverted: this Container is transparent
+              // and the blue panel background lives inside RoutesWidget, so
+              // padding it lifted the panel off the screen edge and exposed a
+              // white band behind the gesture bar (targetSdk 36 forces
+              // edge-to-edge, so the inset is genuinely non-zero). If this
+              // screen is ever wired up, add the inset to RoutesWidget's own
+              // EdgeInsets.all(7) instead, so the background still bleeds to
+              // the edge while the content is inset.
+              child: const SizedBox(
                 height: 350,
                 child: RoutesWidget(),
               ),

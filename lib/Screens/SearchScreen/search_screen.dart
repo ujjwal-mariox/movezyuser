@@ -33,18 +33,19 @@ class _SearchScreenState extends State<SearchScreen> {
 
   double? _pickupLat, _pickupLng;
   double? _dropLat, _dropLng;
+
+  /// Intermediate stops between pickup and drop ("+ ADD STOP" in the design).
+  /// The backend has always modelled booking.stops and charged per stop; the
+  /// app simply had no way to add one.
+  final List<_Stop> _stops = [];
+  static const int _maxStops = 3;
   bool _locatingPickup = false;
 
   List<dynamic> _recentDeliveries = [];
-  bool _loadingRecent = true;
 
-  // Popular landmarks / areas (static for now, can be API-driven later)
-  static const List<Map<String, String>> _popularPlaces = [
-    {'name': 'Railway Station', 'area': 'Central hub • frequently used'},
-    {'name': 'Airport Terminal', 'area': 'Domestic & International'},
-    {'name': 'City Bus Stand', 'area': 'Main bus terminal'},
-    {'name': 'Industrial Area', 'area': 'Warehouses & factories'},
-  ];
+  /// Booking ids the customer has cleared from "Recent Deliveries".
+  static const String _dismissedRecentKey = 'dismissed_recent_deliveries';
+  bool _loadingRecent = true;
 
   @override
   void initState() {
@@ -62,6 +63,18 @@ class _SearchScreenState extends State<SearchScreen> {
     _fetchRecentDeliveries();
   }
 
+  /// Remember what was cleared, so it stays cleared.
+  Future<void> _clearRecentDeliveries() async {
+    final ids = _recentDeliveries
+        .map((b) => (b['_id'] ?? '').toString())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    final dismissed = Prefs.getStringList(_dismissedRecentKey).toSet()
+      ..addAll(ids);
+    await Prefs.setStringList(_dismissedRecentKey, dismissed.toList());
+    if (mounted) setState(() => _recentDeliveries.clear());
+  }
+
   Future<void> _fetchRecentDeliveries() async {
     try {
       final token = Prefs.getString('token');
@@ -76,7 +89,16 @@ class _SearchScreenState extends State<SearchScreen> {
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
         final List bookings = json['data']?['bookings'] ?? [];
-        if (mounted) setState(() { _recentDeliveries = bookings; _loadingRecent = false; });
+        // Drop anything the customer has cleared. This list is derived from
+        // real booking history and there's no endpoint to hide a booking (and
+        // deleting one would be wrong), so the dismissal is remembered locally
+        // — "Clear All" used to empty the list in memory only, and every entry
+        // came straight back on the next visit.
+        final dismissed = Prefs.getStringList(_dismissedRecentKey).toSet();
+        final visible = bookings
+            .where((b) => !dismissed.contains((b['_id'] ?? '').toString()))
+            .toList();
+        if (mounted) setState(() { _recentDeliveries = visible; _loadingRecent = false; });
       } else {
         if (mounted) setState(() => _loadingRecent = false);
       }
@@ -112,7 +134,45 @@ class _SearchScreenState extends State<SearchScreen> {
   void dispose() {
     _pickupController.dispose();
     _dropController.dispose();
+    for (final s in _stops) {
+      s.controller.dispose();
+    }
     super.dispose();
+  }
+
+  void _addStop() {
+    if (_stops.length >= _maxStops) return;
+    setState(() => _stops.add(_Stop()));
+  }
+
+  void _removeStop(int index) {
+    setState(() {
+      _stops[index].controller.dispose();
+      _stops.removeAt(index);
+    });
+  }
+
+  /// Pick a stop's location on the map. A stop is only usable with real
+  /// coordinates, so this always goes through the picker.
+  Future<void> _pickStopLocation(int index) async {
+    final stop = _stops[index];
+    final result = await Navigator.push<MapPickerResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MapPickerScreen(
+          title: 'Pick Stop ${index + 1}',
+          initialLocation:
+              stop.lat != null ? LatLng(stop.lat!, stop.lng!) : null,
+          initialAddress: stop.controller.text,
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      stop.controller.text = result.address;
+      stop.lat = result.lat;
+      stop.lng = result.lng;
+    });
   }
 
   /// Open map picker for pickup or drop
@@ -296,6 +356,77 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   /// Navigate to delivery category with current addresses
+  /// One numbered stop row: badge, address (tap to pick on map), remove.
+  Widget _stopRow(int index) {
+    final stop = _stops[index];
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        children: [
+          const SizedBox(width: 15),
+          Container(
+            width: 34,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '${index + 1}',
+              style: TextStyle(
+                color: AppColors.appColor,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => _pickStopLocation(index),
+              child: Container(
+                height: 45,
+                margin: const EdgeInsets.only(left: 10, right: 15),
+                padding: const EdgeInsets.symmetric(horizontal: 15),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        stop.controller.text.isEmpty
+                            ? 'Where is your Stop ${index + 1}?'
+                            : stop.controller.text,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w400,
+                          color: stop.controller.text.isEmpty
+                              ? Colors.grey
+                              : Colors.black,
+                        ),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () => _removeStop(index),
+                      child: const Padding(
+                        padding: EdgeInsets.only(left: 6),
+                        child: Icon(Icons.close, size: 18, color: Colors.grey),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _proceedToCategory() async {
     final pickup = _pickupController.text.trim();
     final drop = _dropController.text.trim();
@@ -310,6 +441,21 @@ class _SearchScreenState extends State<SearchScreen> {
     // Try to geocode addresses if we don't have coords
     await _geocodeAddresses();
 
+    // A stop without coordinates can't be routed or priced — make the user
+    // finish it rather than silently dropping it from the trip.
+    final incomplete = _stops.indexWhere(
+        (s) => s.controller.text.trim().isNotEmpty && !s.hasCoords);
+    if (incomplete != -1) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(
+                  "Pick Stop ${incomplete + 1} on the map so we can route to it.")),
+        );
+      }
+      return;
+    }
+
     final data = (widget.bookingData ?? BookingData()).copyWith(
       pickupAddress: pickup,
       dropAddress: drop,
@@ -317,6 +463,7 @@ class _SearchScreenState extends State<SearchScreen> {
       pickupLng: _pickupLng,
       dropLat: _dropLat,
       dropLng: _dropLng,
+      stops: _stops.where((s) => s.hasCoords).map((s) => s.toJson()).toList(),
     );
 
     if (mounted) pushTo(context, DeliveryCategoryScreen(bookingData: data));
@@ -336,15 +483,31 @@ class _SearchScreenState extends State<SearchScreen> {
       backgroundColor: HexColor("#E7F7F5"),
       body: Column(
         children: [
+          // The page scrolls; the Search button below stays pinned.
+          //
+          // Making the header content-sized (so it grows with each stop) only
+          // moved the overflow up a level: this root Column never scrolled, so
+          // the growth pushed the page past the viewport instead of clipping
+          // inside the header. It overflowed a 320x568 screen by ~103px with
+          // ZERO stops, and a 360x640 by ~158px with three — the stops feature
+          // was unusable on any sub-800dp-tall device.
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
           Container(
-              height : 285,
+              // Sizes to its content. This was a hard-coded 285px that predates
+              // the stops feature: each stop row adds ~55px, so adding even one
+              // overflowed the header and clipped the stop rows and the ADD STOP
+              // button — on the very first tap of the feature. The design shows
+              // the header growing with each stop.
               width: MediaQuery.of(context).size.width,
               decoration:  BoxDecoration(
                 color: AppColors.appColor,
                 borderRadius: BorderRadius.only(bottomLeft: Radius.circular(25), bottomRight: Radius.circular(25))
               ),
               child: Container(
-                padding: const EdgeInsets.only(top: 50),
+                padding: const EdgeInsets.only(top: 50, bottom: 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -352,29 +515,44 @@ class _SearchScreenState extends State<SearchScreen> {
                     Row(
                       children: [
                         SizedBox(width: 5,),
-                        Row(
-                          children: [
-                            InkWell(
-                              onTap: (){
-                                Navigator.pop(context);
-                              },
-                              child: Container(
-                                padding: EdgeInsets.only(left: 16),
-                                width: 40,
-                                height: 35,
-                                alignment: Alignment.center,
-                                child: Icon(Icons.arrow_back_ios, color: Colors.white,),
+                        // Expanded: as a bare Row child this inner Row got
+                        // unbounded width, so the title laid out at its intrinsic
+                        // width and could never ellipsize. Bounding it here is
+                        // what lets the Expanded below have space to divide.
+                        Expanded(
+                          child: Row(
+                            children: [
+                              InkWell(
+                                onTap: (){
+                                  Navigator.pop(context);
+                                },
+                                child: Container(
+                                  padding: EdgeInsets.only(left: 16),
+                                  width: 40,
+                                  height: 35,
+                                  alignment: Alignment.center,
+                                  child: Icon(Icons.arrow_back_ios, color: Colors.white,),
+                                ),
                               ),
-                            ),
-                            Text(
-                              "Add Location to Proceed",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 17,
-                                fontWeight: FontWeight.bold,
+                              // Expanded + ellipsis: the back arrow is a fixed 40px,
+                              // so the title takes the rest instead of its intrinsic
+                              // width. At default scale it fits (~195px of ~275px) and
+                              // looks unchanged; at a 1.5x+ text scale it used to run
+                              // off a 320dp screen.
+                              Expanded(
+                                child: Text(
+                                  "Add Location to Proceed",
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
 
                       ],
@@ -397,18 +575,23 @@ class _SearchScreenState extends State<SearchScreen> {
                           child: Image.asset("assets/pic_up_location.png", height: 20,width: 20,),
                         ),
 
-                        Expanded(child: GestureDetector(
-                          onTap: () => _openMapPicker(isPickup: true),
-                          child: Container(
+                        Expanded(child: Container(
                             margin: EdgeInsets.only(left: 10, right: 15),
                             padding: const EdgeInsets.only(left: 15, right: 6),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: AbsorbPointer(
-                              child: TextField(
+                            // readOnly + onTap instead of AbsorbPointer. The
+                            // AbsorbPointer wrapped the whole TextField —
+                            // suffixIcon included — so the GPS crosshair could
+                            // never be tapped: the hit was swallowed and fell
+                            // through to the map picker, leaving
+                            // _useCurrentLocation() unreachable dead code.
+                            child: TextField(
                                 controller: _pickupController,
+                                readOnly: true,
+                                onTap: () => _openMapPicker(isPickup: true),
                                 decoration: InputDecoration(
                                   suffixIcon: GestureDetector(
                                     onTap: _useCurrentLocation,
@@ -427,9 +610,8 @@ class _SearchScreenState extends State<SearchScreen> {
                                     )
                                 ),
                               ),
-                            ),
                           ),
-                        ),)
+                        )
                       ],
                     ),
 
@@ -485,6 +667,40 @@ class _SearchScreenState extends State<SearchScreen> {
                       ],
                     ),
 
+                    // ── Stops between pickup and drop ──
+                    ..._stops.asMap().entries.map((e) => _stopRow(e.key)),
+
+                    if (_stops.length < _maxStops)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Center(
+                          child: InkWell(
+                            onTap: _addStop,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(Icons.add_circle,
+                                      color: Colors.white, size: 18),
+                                  SizedBox(width: 7),
+                                  Text(
+                                    "ADD STOP",
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.4,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
                   ],
                 ),
               )
@@ -537,7 +753,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 const Spacer(),
                 if (_recentDeliveries.isNotEmpty)
                   InkWell(
-                    onTap: () => setState(() => _recentDeliveries.clear()),
+                    onTap: _clearRecentDeliveries,
                     child: Text("Clear All", style: TextStyle(color: HexColor('#F4BE05'), fontSize: 13, fontWeight: FontWeight.w600)),
                   ),
               ],
@@ -561,7 +777,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 children: _recentDeliveries.map((order) {
                   final dropAddr = order['drop']?['address'] ?? 'Unknown';
                   final pickupAddr = order['pickup']?['address'] ?? '';
-                  final vehicleName = order['vehicleType']?['name'] ?? '';
+                  // GET /bookings populates `vehicleTypeId` — the key stays
+                  // vehicleTypeId in the JSON, so reading `vehicleType` always
+                  // gave '' and the subtitle rendered as just " • #MZ0007".
+                  final vehicleName = order['vehicleTypeId']?['name'] ??
+                      order['vehicleType']?['name'] ??
+                      '';
                   final bookingNum = order['bookingNumber'] ?? '';
                   return Column(
                     children: [
@@ -632,74 +853,30 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
 
-          const SizedBox(height: 12),
-
-          // ─── POPULAR IN YOUR AREA ───
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            child: Row(
-              children: [
-                Icon(Icons.trending_up, size: 18, color: Colors.orange),
-                const SizedBox(width: 8),
-                Text("Popular in your area", style: TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ),
-
-          Expanded(
-            child: Container(
-              color: Colors.white,
-              child: ListView.builder(
-                padding: const EdgeInsets.only(top: 4),
-                itemCount: _popularPlaces.length,
-                itemBuilder: (context, index) {
-                  final place = _popularPlaces[index];
-                  return Column(
-                    children: [
-                      InkWell(
-                        onTap: () {
-                          setState(() {
-                            _dropController.text = place['name']!;
-                          });
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 40, height: 40,
-                                decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-                                child: const Icon(Icons.place_outlined, color: Colors.orange, size: 20),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(place['name']!, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                    const SizedBox(height: 3),
-                                    Text(place['area']!, style: TextStyle(fontSize: 11, color: HexColor("#777777"))),
-                                  ],
-                                ),
-                              ),
-                              Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey.shade400),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Divider(height: 1, color: Colors.grey.shade200, indent: 68),
-                    ],
-                  );
-                },
+          // NOTE: a hardcoded "Popular in your area" list (Railway Station /
+          // Airport Terminal / City Bus Stand / Industrial Area) used to live
+          // here. It is not in the design — which has Saved Addresses + Recent
+          // places — and it was actively harmful: tapping an entry only set the
+          // drop TEXT with no coordinates, and the downstream screens then
+          // substituted fixed Delhi/Noida coords, so the user saw fares for a
+          // route that wasn't theirs and could book to the wrong place.
+          // The Spacer that was here is gone: a Spacer inside a
+          // SingleChildScrollView's Column asserts on unbounded height, and it
+          // clamped to 0 and absorbed nothing once space went negative anyway.
+                ],
               ),
             ),
           ),
 
-          // Search / Proceed button
+          // Search / Proceed button — outside the scroll view so it stays
+          // reachable no matter how tall the content gets.
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            // Vertical 12 is the design's gap; the device's real bottom inset
+            // (gesture bar / nav buttons) is added to the bottom only, so the
+            // Search button is never partly underneath the system UI.
+            padding: EdgeInsets.fromLTRB(
+                20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
             color: Colors.white,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -733,4 +910,24 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+}
+
+/// An intermediate stop between pickup and drop.
+///
+/// Only usable once it has real coordinates — an address string alone can't be
+/// routed or priced, and inventing coordinates is exactly what caused the old
+/// "fares for a Delhi route you never asked for" bug.
+class _Stop {
+  final TextEditingController controller = TextEditingController();
+  double? lat;
+  double? lng;
+
+  bool get hasCoords => lat != null && lng != null;
+
+  /// Shape the backend expects for booking.stops.
+  Map<String, dynamic> toJson() => {
+        'address': controller.text.trim(),
+        'lat': lat,
+        'lng': lng,
+      };
 }

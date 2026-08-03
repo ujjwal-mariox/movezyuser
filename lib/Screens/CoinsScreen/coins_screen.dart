@@ -4,8 +4,12 @@ import 'package:hexcolor/hexcolor.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
+import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
 import 'package:movezy_user_app/Screens/CoinsScreen/BottomSheets/coins_bottom_screen.dart';
+import 'package:movezy_user_app/Screens/CoinsScreen/coin_history_screen.dart';
+import 'package:movezy_user_app/Screens/CoinsScreen/coin_transfer_sheet.dart';
+import 'package:movezy_user_app/Services/coin_service.dart';
 
 
 class CoinsScreen extends StatefulWidget {
@@ -71,9 +75,10 @@ class _CoinsScreenState extends State<CoinsScreen> {
                 child: Row(
                   children: [
                     InkWell(
-                      onTap: (){
-                        Navigator.pop(context);
-                      },
+                      // Coins is a dashboard tab, not a pushed route, so it is
+                      // usually the only route on the stack — an unconditional
+                      // pop() popped it and left a black screen.
+                      onTap: () => safeBack(context),
                       child: Container(
                         padding: EdgeInsets.only(left: 16),
                         width: 40,
@@ -146,7 +151,7 @@ class _CoinsScreenState extends State<CoinsScreen> {
                                   ),
                                   SizedBox(height: 5,),
                                   GestureDetector(
-                                    onTap: () => _comingSoon('Coin history'),
+                                    onTap: _openHistory,
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                                       decoration: BoxDecoration(
@@ -180,9 +185,9 @@ class _CoinsScreenState extends State<CoinsScreen> {
 
                   Row(
                     children: [
-                      Expanded(child: _iconCard('Transfer into', 'Movezy Credits', "assets/movezy_credits.png", onTap: _comingSoonTransfer)),
+                      Expanded(child: _iconCard('Transfer into', 'Movezy Credits', "assets/movezy_credits.png", onTap: _transferToCredits)),
                       const SizedBox(width: 12),
-                      Expanded(child: _iconCard('Transfer into', 'Bank Account', "assets/bank_account.png", onTap: _comingSoonTransfer)),
+                      Expanded(child: _iconCard('Transfer into', 'Bank Account', "assets/bank_account.png", onTap: _transferToBank)),
                     ],
                   ),
 
@@ -216,7 +221,13 @@ class _CoinsScreenState extends State<CoinsScreen> {
                   _faqTile(
                     1,
                     'Do Movezy coins have validity?',
-                    'Coins remain in your account and can be redeemed on any future booking unless a specific offer states an expiry.',
+                    // This said coins never expire "unless a specific offer
+                    // states an expiry" — but the backend stamps an expiryDate
+                    // on every earned coin and expires them after 30 days
+                    // (COIN_EXPIRY_DAYS). We were telling users their coins were
+                    // safe while the server was deleting them. The "How coins
+                    // work" sheet in this same app already said 30 days.
+                    'Yes. Coins expire 30 days after they are credited, so redeem them on your next booking. Your coin balance shows what is still valid.',
                   ),
                 ],
               ),
@@ -241,41 +252,33 @@ class _CoinsScreenState extends State<CoinsScreen> {
       ),
       child: Row(
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: EdgeInsets.all(5),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(100),
-                  border: Border.all(color: HexColor('#FF6200')),
-                ),
-                child: Icon(Icons.arrow_forward_ios_sharp, size: 12, color: Colors.orange),
-              ),
-              const SizedBox(height: 10),
-
-              Row(
-                children: [
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: const TextStyle(fontSize: 10)),
-                      Text(subtitle, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 10),
-                    ],
+          // Expanded: as a bare Row child this Column got unbounded width, so
+          // the title/subtitle laid out at intrinsic width and could never wrap
+          // — and the Spacer clamps to 0, absorbing nothing. The 58px image
+          // then had no room and the card overflowed.
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(100),
+                    border: Border.all(color: HexColor('#FF6200')),
                   ),
-                ],
-              ),
-
-
-            ],
+                  child: Icon(Icons.arrow_forward_ios_sharp, size: 12, color: Colors.orange),
+                ),
+                const SizedBox(height: 10),
+                Text(title, style: const TextStyle(fontSize: 10)),
+                Text(subtitle, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+              ],
+            ),
           ),
-          Spacer(),
+          const SizedBox(width: 6),
 
-          Container(
-              child: Image.asset(icon, width: 58,height: 70,fit: BoxFit.fill,)
-          ),
+          Image.asset(icon, width: 58, height: 70, fit: BoxFit.fill),
           SizedBox(width: 3,)
         ],
       ),
@@ -336,16 +339,52 @@ class _CoinsScreenState extends State<CoinsScreen> {
     );
   }
 
-  /// Coins transfer (to credits/bank) isn't available yet — be honest.
-  void _comingSoonTransfer() => _comingSoon('Coin transfers');
+  // NOTE: transfers and history used to show "coming soon". The endpoints
+  // existed, but only /coins/transactions actually worked — transfer-to-wallet
+  // debited the coins and never credited the wallet, and bank-transfer rejected
+  // every request outright. Both are now implemented and tested end to end;
+  // bank payouts land in an admin queue and are settled by hand.
 
-  /// Generic honest "not available yet" feedback for coin features that have
-  /// no backend endpoint (transfer, transaction history).
-  void _comingSoon(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$feature are coming soon.')),
-    );
+  /// Convert coins → Movezy Credits (wallet). 1 coin = ₹1.
+  void _transferToCredits() => _openTransferSheet(
+        toBank: false,
+        title: 'Transfer into Movezy Credits',
+        rateLabel: '1 coin = ₹1',
+        minCoins: CoinService.minWalletTransfer,
+      );
+
+  /// Request a bank payout. 1 coin = ₹0.90.
+  void _transferToBank() => _openTransferSheet(
+        toBank: true,
+        title: 'Transfer into Bank Account',
+        rateLabel: '1 coin = ₹0.90',
+        minCoins: CoinService.minBankTransfer,
+      );
+
+  void _openTransferSheet({
+    required bool toBank,
+    required String title,
+    required String rateLabel,
+    required int minCoins,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CoinTransferSheet(
+        toBank: toBank,
+        title: title,
+        rateLabel: rateLabel,
+        minCoins: minCoins,
+        availableCoins: _balance,
+      ),
+    ).then((changed) {
+      // Balance moved — refresh it rather than trust local arithmetic.
+      if (changed == true) _fetchBalance();
+    });
   }
+
+  void _openHistory() => pushTo(context, const CoinHistoryScreen());
 
   /// Show the "how coins work" info sheet.
   void _showCoinsInfo() {

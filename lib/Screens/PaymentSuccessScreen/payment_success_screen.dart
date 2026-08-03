@@ -21,15 +21,21 @@ class _PaymentSuccessScreenState extends State<PaymentSuccessScreen> {
     final double cardWidth = width * 0.90;
     return Scaffold(
       backgroundColor: Colors.white,
-      bottomNavigationBar: Container(
-        margin: EdgeInsets.only(bottom: 10),
-        height: 75,
-        padding: const EdgeInsets.symmetric(horizontal: 20,vertical: 12),
-        child: ButtonWidget(
-          height: 50,
-          text: "Done",onTap: (){
-          pushTo(context, RideFindingScreen(bookingId: '', bookingNumber: '',));
-        },
+      // The bar's own 10px margin was the only gap under "Done", so on
+      // gesture-navigation devices the system bar overlapped the button and the
+      // user could not finish the flow. SafeArea adds the real device inset.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          margin: EdgeInsets.only(bottom: 10),
+          height: 75,
+          padding: const EdgeInsets.symmetric(horizontal: 20,vertical: 12),
+          child: ButtonWidget(
+            height: 50,
+            text: "Done",onTap: (){
+            pushTo(context, RideFindingScreen(bookingId: '', bookingNumber: '',));
+          },
+          ),
         ),
       ),
       body: Padding(

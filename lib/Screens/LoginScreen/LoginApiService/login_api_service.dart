@@ -9,11 +9,16 @@ import 'package:http/http.dart' as http;
 
 
 class LoginApiService {
-  Future<LoginResponse> loginApi(BuildContext context, String mobileNumber) async {
+  /// [whatsappOptIn] is the login screen's WhatsApp-updates checkbox. It used
+  /// to live only in widget state, so the customer's consent — opt-in or
+  /// opt-out — was never recorded anywhere.
+  Future<LoginResponse> loginApi(BuildContext context, String mobileNumber,
+      {bool whatsappOptIn = false}) async {
     try {
       var params = {
         "countryCode": "+91",
-        "mobileNumber": mobileNumber
+        "mobileNumber": mobileNumber,
+        "whatsappOptIn": whatsappOptIn
       };
 
       var response = await http.post(Uri.parse(ApiUrls.loginUrl),

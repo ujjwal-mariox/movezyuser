@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:hexcolor/hexcolor.dart';
+import 'package:movezy_user_app/Services/coin_service.dart';
 
 
 class EarnCoinsBottomSheet extends StatefulWidget {
@@ -13,6 +14,20 @@ class EarnCoinsBottomSheet extends StatefulWidget {
 class _EarnCoinsBottomSheetState extends State<EarnCoinsBottomSheet> {
   int currentIndex = 0;
   final CarouselSliderController carouselController = CarouselSliderController();
+
+  // Every figure on these slides is real config. It used to seed from a
+  // baked-in constant, so when the config call failed the sheet still stated
+  // "1 Coin = ₹1" and a 30-day expiry as fact — numbers nobody had set.
+  // Null until the server answers; the slides omit the figure until then.
+  CoinConfig? _cfg;
+
+  @override
+  void initState() {
+    super.initState();
+    CoinService.fetchConfig().then((c) {
+      if (c != null && c.isComplete && mounted) setState(() => _cfg = c);
+    });
+  }
 
 
   @override
@@ -30,7 +45,18 @@ class _EarnCoinsBottomSheetState extends State<EarnCoinsBottomSheet> {
           ],
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+      // Modal sheet: showModalBottomSheet is called without useSafeArea, so the
+      // sheet runs to the physical bottom edge and the page indicator sat under
+      // the gesture bar. Clear both the keyboard and the gesture bar, keeping
+      // the designed 18pt gap.
+      padding: EdgeInsets.only(
+        left: 22,
+        right: 22,
+        top: 18,
+        bottom: 18 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
+      ),
       child: Column(
         children: [
           // Header
@@ -115,10 +141,12 @@ class _EarnCoinsBottomSheetState extends State<EarnCoinsBottomSheet> {
       children: [
         Image.asset("assets/coins_plus.png", height: 120),
         const SizedBox(height: 20),
-        const Text(
-          "Earn 2 coins on every ₹100 spent on\nTruck or 2-wheeler booking",
+        Text(
+          _cfg == null
+                        ? "Earn coins on every booking"
+                        : "Earn ${CoinConfig.money(_cfg!.earnRatePer100)} coins on every ₹100 spent on\nTruck or 2-wheeler booking",
           textAlign: TextAlign.center,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 17,
             fontWeight: FontWeight.w600,
           ),
@@ -132,14 +160,18 @@ class _EarnCoinsBottomSheetState extends State<EarnCoinsBottomSheet> {
     return Column(
       children: [
         Image.asset("assets/coins_conversion.png", height: 120),
-        const Text(
-          "For Movezy Credits: 1 Coin = ₹1",
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+        Text(
+          _cfg == null
+                        ? "For Movezy Credits"
+                        : "For Movezy Credits: 1 Coin = ₹${CoinConfig.money(_cfg!.rupeeRate)}",
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 6),
-        const Text(
-          "For Bank Transfer: 1 Coin = ₹0.9",
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+        Text(
+          _cfg == null
+                        ? "For Bank Transfer"
+                        : "For Bank Transfer: 1 Coin = ₹${CoinConfig.money(_cfg!.bankRate)}",
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
         ),
       ],
     );
@@ -151,10 +183,12 @@ class _EarnCoinsBottomSheetState extends State<EarnCoinsBottomSheet> {
       children: [
         Image.asset("assets/hourglass.png", height: 120),
         const SizedBox(height: 20),
-        const Text(
-          "Movezy Coins expire after 30 days from\nthe date of credit",
+        Text(
+          _cfg == null
+                        ? "Movezy Coins expire after a period set by Movezy"
+                        : "Movezy Coins expire after ${_cfg!.expiryDays} days from\nthe date of credit",
           textAlign: TextAlign.center,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 17,
             fontWeight: FontWeight.w600,
           ),

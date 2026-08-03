@@ -29,24 +29,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
+      extendBody: true,
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          IndexedStack(
-            index: _currentIndex,
-            children: List.generate(5, (i) => _buildPage(i)),
-          ),
-
-
-         Column(
-           children: [
-             Spacer(),
-             SizedBox(
-               height: 97,
+          SizedBox(
+               height: 107,
                width: MediaQuery.of(context).size.width,
                child: Stack(
                  children: [
                    Container(
-                     margin: EdgeInsets.only(top: 30),
+                     margin: EdgeInsets.only(top: 31),
                      child: ClipRRect(
                        borderRadius: BorderRadius.only(
                          topLeft: Radius.circular(25),
@@ -55,7 +48,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                        child: Image.asset(
                          "assets/bottom_navigation_bg.png",
                          fit: BoxFit.cover,
-                         height: 70,
+                         height: 76,
                          width: MediaQuery.of(context).size.width,
                        ),
                      ),
@@ -79,8 +72,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                  child: Container(
                                    child: Column(
                                      children: [
-                                       Image.asset(_currentIndex == 0 ? "assets/home_se_ds.png" : "assets/home_ds.png", width: 20,),
-                                       Text("Home", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 13),)
+                                       Image.asset(_currentIndex == 0 ? "assets/home_se_ds.png" : "assets/home_ds.png", width: 24,),
+                                       Text("Home", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 12, letterSpacing: -0.36),)
                                      ],
                                    ),
                                  ),
@@ -97,8 +90,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                  child: Container(
                                    child: Column(
                                      children: [
-                                       Image.asset(_currentIndex == 1 ? "assets/clock_se_ds.png" : "assets/clock_ds.png", width: 22,),
-                                       Text("History", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 13),)
+                                       Image.asset(_currentIndex == 1 ? "assets/clock_se_ds.png" : "assets/clock_ds.png", width: 24,),
+                                       Text("History", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 12, letterSpacing: -0.36),)
                                      ],
                                    ),
                                  ),
@@ -115,11 +108,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                  child: Container(
                                    child: Column(
                                      children: [
-                                       Opacity(
-                                         opacity: _currentIndex == 2 ? 1.0 : 0.6,
-                                         child: Image.asset("assets/coins_dashboard.png", width: 22, height: 22,),
-                                       ),
-                                       Text("Coin", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 13),)
+                                       // Icon lives in the raised badge above;
+                                       // a second one here doubled it up.
+                                       const SizedBox(height: 24),
+                                       Text("Coin", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 14, letterSpacing: -0.36),)
                                      ],
                                    ),
                                  ),
@@ -136,8 +128,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                  child: Container(
                                    child: Column(
                                      children: [
-                                       Image.asset(_currentIndex == 3 ? "assets/wallet_se_ds.png" : "assets/wallet_ds.png", width: 22,),
-                                       Text("Wallet", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 13),)
+                                       Image.asset(_currentIndex == 3 ? "assets/wallet_se_ds.png" : "assets/wallet_ds.png", width: 24,),
+                                       Text("Wallet", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 12, letterSpacing: -0.36),)
                                      ],
                                    ),
                                  ),
@@ -154,8 +146,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                  child: Container(
                                    child: Column(
                                      children: [
-                                       Image.asset(_currentIndex == 4 ? "assets/profile_se_ds.png" : "assets/profile_ds.png", width: 22,),
-                                       Text("Profile", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 13),)
+                                       Image.asset(_currentIndex == 4 ? "assets/profile_se_ds.png" : "assets/profile_ds.png", width: 24,),
+                                       Text("Profile", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 12, letterSpacing: -0.36),)
                                      ],
                                    ),
                                  ),
@@ -175,25 +167,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
                        crossAxisAlignment: CrossAxisAlignment.center,
                        mainAxisSize: MainAxisSize.min,
                        children: [
+                         // The raised coin badge is the most prominent thing in
+                         // the nav bar and was a bare Container — no InkWell,
+                         // no GestureDetector — so tapping it did nothing at
+                         // all. It now opens Coins, like the tab beneath it.
                          Container(
-                           height: 45,
-                           width: 45,
-                           padding: EdgeInsets.all(10),
-                           decoration: BoxDecoration(
-                             color: AppColors.appColor,
-                             borderRadius: BorderRadius.circular(100),
+                           padding: const EdgeInsets.all(4),
+                           decoration: const BoxDecoration(
+                             color: Colors.white,
+                             shape: BoxShape.circle,
                            ),
-                           child: Image.asset("assets/coins_dashboard.png", height: 20),
+                           child: Material(
+                             color: AppColors.appColor,
+                             shape: const CircleBorder(),
+                             clipBehavior: Clip.antiAlias,
+                             child: InkWell(
+                               onTap: () => setState(() => _currentIndex = 2),
+                               child: Container(
+                                 height: 52,
+                                 width: 52,
+                                 padding: EdgeInsets.all(14),
+                                 child: Image.asset("assets/coins_dashboard.png", height: 24),
+                               ),
+                             ),
+                           ),
                          ),
                        ],
                      ),
                    ),
                  ],
                ),
-             )
-           ],
-         )
+          ),
+          // The system gesture-bar strip, in brand orange so the bar reads as
+          // one continuous element down to the screen edge.
+          Container(
+            height: MediaQuery.of(context).padding.bottom,
+            width: MediaQuery.of(context).size.width,
+            color: AppColors.appColor,
+          ),
         ],
+      ),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: List.generate(5, (i) => _buildPage(i)),
       ),
     );
   }

@@ -204,7 +204,14 @@ class _LocationPermissionScreenState extends State<LocationPermissionScreen> {
           Center(
             child: SingleChildScrollView(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                // Scroll clearance: once the content is taller than the viewport
+                // (small screen / large text scale) the last row — "Have a
+                // referral code?" — ended up under the gesture bar, so add the
+                // real inset to the scrolled content.
+                padding: EdgeInsets.only(
+                    left: 20.0,
+                    right: 20.0,
+                    bottom: MediaQuery.of(context).padding.bottom),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.center,

@@ -82,12 +82,11 @@ class _DeliveryCategoryScreenState extends State<DeliveryCategoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final buttonText = widget.bookingData.hasVehicle
-        ? "Proceed With ${widget.bookingData.selectedVehicle!.name}"
-        : "Select Vehicle";
+    // The design labels this simply "Next".
+    const buttonText = "Next";
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF7F7F7),
       body: Column(
         children: [
           commonAppBar(
@@ -121,7 +120,6 @@ class _DeliveryCategoryScreenState extends State<DeliveryCategoryScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 15),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFFFF7A30)))
@@ -144,22 +142,42 @@ class _DeliveryCategoryScreenState extends State<DeliveryCategoryScreen> {
                           ],
                         ),
                       )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        itemCount: _categories.length,
-                        itemBuilder: (context, index) {
-                          final cat = _categories[index];
-                          return _CategoryTile(
-                            icon: cat.icon,
-                            title: cat.name,
-                            subtitle: cat.description,
-                            onTap: () => _onCategorySelected(context, cat),
-                          );
-                        },
+                    // One continuous white sheet with hairline dividers, per the
+                    // design — not individually bordered cards.
+                    : ClipRRect(
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(20),
+                          topRight: Radius.circular(20),
+                        ),
+                        child: Container(
+                          color: Colors.white,
+                          child: ListView.separated(
+                            padding: EdgeInsets.zero,
+                            itemCount: _categories.length,
+                            separatorBuilder: (_, _) => const Divider(
+                              height: 1,
+                              thickness: 1,
+                              color: Color(0xFFFCEBE0),
+                            ),
+                            itemBuilder: (context, index) {
+                              final cat = _categories[index];
+                              return _CategoryTile(
+                                icon: cat.icon,
+                                title: cat.name,
+                                subtitle: cat.description,
+                                onTap: () => _onCategorySelected(context, cat),
+                              );
+                            },
+                          ),
+                        ),
                       ),
           ),
           Padding(
-            padding: const EdgeInsets.all(16.0),
+            // 16 all round is the design's gap; the device's real bottom inset
+            // (gesture bar / nav buttons) is added to the bottom so "Next"
+            // isn't sitting underneath the system UI.
+            padding: EdgeInsets.fromLTRB(
+                16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
             child: SizedBox(
               width: double.infinity,
               height: 54,
@@ -217,48 +235,71 @@ class _CategoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Determine if icon is an emoji or asset path or URL
+    // The design shows photo thumbnails; the backend `icon` may be a URL, an
+    // asset path, or an emoji, so all three still render.
+    const double thumb = 56;
     Widget iconWidget;
     if (icon.startsWith('http')) {
-      iconWidget = Image.network(icon, width: 45, height: 45, errorBuilder: (_, _, _) => const Text('📦', style: TextStyle(fontSize: 30)));
+      iconWidget = Image.network(
+        icon,
+        width: thumb,
+        height: thumb,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) =>
+            const Center(child: Text('📦', style: TextStyle(fontSize: 30))),
+      );
     } else if (icon.startsWith('assets/')) {
-      iconWidget = Image.asset(icon, width: 45, height: 45, errorBuilder: (_, _, _) => const Text('📦', style: TextStyle(fontSize: 30)));
+      iconWidget = Image.asset(
+        icon,
+        width: thumb,
+        height: thumb,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) =>
+            const Center(child: Text('📦', style: TextStyle(fontSize: 30))),
+      );
     } else {
-      // Treat as emoji
-      iconWidget = Text(icon.isNotEmpty ? icon : '📦', style: const TextStyle(fontSize: 30));
+      iconWidget = Center(
+        child: Text(icon.isNotEmpty ? icon : '📦',
+            style: const TextStyle(fontSize: 32)),
+      );
     }
 
     return InkWell(
       onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade300),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         child: Row(
           children: [
-            SizedBox(width: 45, height: 45, child: Center(child: iconWidget)),
-            const SizedBox(width: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(width: thumb, height: thumb, child: iconWidget),
+            ),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A1A1A)),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     subtitle,
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.black),
+            const SizedBox(width: 8),
+            const Icon(Icons.arrow_forward_ios, size: 15, color: Colors.black87),
           ],
         ),
       ),

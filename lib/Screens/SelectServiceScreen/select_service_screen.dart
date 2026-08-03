@@ -151,7 +151,9 @@ class _SelectServiceScreenState extends State<SelectServiceScreen> {
         ),
       ),
 
-      bottomNavigationBar: _bottomButton(),
+      // SafeArea(top: false): _bottomButton applies no inset of its own, so the
+      // "Book 3 Wheeler" button sat under the gesture bar / nav buttons.
+      bottomNavigationBar: SafeArea(top: false, child: _bottomButton()),
     );
   }
 

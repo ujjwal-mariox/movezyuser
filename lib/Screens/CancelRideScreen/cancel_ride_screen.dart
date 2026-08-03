@@ -23,6 +23,75 @@ class _CancelRideScreenState extends State<CancelRideScreen> {
   void initState() {
     super.initState();
     _fetchReasons();
+    _loadPreview();
+  }
+
+  /// The real refund consequence for this booking's CURRENT stage.
+  Map<String, dynamic>? _preview;
+
+  Future<void> _loadPreview() async {
+    final p = await BookingService.cancellationPreview(widget.bookingId);
+    if (mounted) setState(() => _preview = p);
+  }
+
+  /// Warning banner shown above the reasons. Says nothing about amounts unless
+  /// the server told us what they are — the percentages are admin-configurable,
+  /// so the app must not assert its own.
+  Widget _refundNotice() {
+    final p = _preview;
+    if (p == null) return const SizedBox.shrink();
+
+    final bool afterPickup = p['afterPickup'] == true;
+    final bool wasPaid = p['wasPaid'] == true;
+    final num pct = (p['refundPercentage'] as num?) ?? 0;
+    final num amount = (p['refundAmount'] as num?) ?? 0;
+
+    String msg;
+    if (!wasPaid) {
+      msg = afterPickup
+          ? 'Your goods are already with the driver. No payment has been taken for this booking.'
+          : 'No payment has been taken for this booking.';
+    } else if (pct <= 0) {
+      msg = afterPickup
+          ? 'Your goods have already been picked up. Cancelling now is not refundable.'
+          : 'Cancelling now is not refundable.';
+    } else if (amount > 0) {
+      msg = 'You will be refunded ₹${amount.toStringAsFixed(0)} (${pct.toStringAsFixed(0)}% of the fare).';
+    } else {
+      msg = 'A refund of ${pct.toStringAsFixed(0)}% applies to this cancellation.';
+    }
+
+    final bool warn = wasPaid && pct <= 0;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: warn ? const Color(0xFFFDECEA) : const Color(0xFFFFF6F0),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: warn ? const Color(0xFFE02D3C) : const Color(0xFFFFDEC9)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(warn ? Icons.warning_amber_rounded : Icons.info_outline,
+              size: 18,
+              color: warn ? const Color(0xFFE02D3C) : const Color(0xFFFF6200)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(msg,
+                style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                    color: warn
+                        ? const Color(0xFF8C1D18)
+                        : const Color(0xFF3D3D3D))),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _fetchReasons() async {
@@ -65,13 +134,24 @@ class _CancelRideScreenState extends State<CancelRideScreen> {
     setState(() => _cancelling = true);
 
     try {
-      final selectedReason = _reasons[_selectedIndex];
-      await BookingService.cancelBooking(
+      // Indexing blindly threw a RangeError when the reasons list came back
+      // empty, which the catch below reported as "Failed to cancel" — leaving
+      // the customer with no way out of the booking. Cancelling must not
+      // depend on a reason being available.
+      final selectedReason =
+          (_selectedIndex >= 0 && _selectedIndex < _reasons.length)
+              ? _reasons[_selectedIndex]
+              : null;
+      final result = await BookingService.cancelBooking(
         widget.bookingId,
-        cancellationReasonId: selectedReason.id.isNotEmpty ? selectedReason.id : null,
+        cancellationReasonId:
+            (selectedReason != null && selectedReason.id.isNotEmpty)
+                ? selectedReason.id
+                : null,
       );
       if (mounted) {
-        Navigator.pop(context, 'cancelled');
+        // Hand the real outcome back so the success screen can state it.
+      Navigator.pop(context, result['data'] ?? result);
       }
     } catch (e) {
       if (mounted) {
@@ -133,6 +213,16 @@ class _CancelRideScreenState extends State<CancelRideScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // What cancelling now actually costs — shown BEFORE the
+                        // customer picks a reason. Cancel used to be offered
+                        // after pickup with no hint that the refund is nil.
+                        Transform.translate(
+                          offset: const Offset(-20, 0),
+                          child: SizedBox(
+                            width: MediaQuery.of(context).size.width,
+                            child: _refundNotice(),
+                          ),
+                        ),
                         const Text(
                           'Why are you cancelling?',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),

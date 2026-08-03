@@ -37,6 +37,9 @@ class BookingItem {
   final double distanceKm;
   final String paymentMethod;
   final String? paymentStatus;
+
+  /// Stars the customer already gave, 0/null when never rated.
+  final int rating;
   final DateTime createdAt;
   final String serviceType;
 
@@ -60,6 +63,7 @@ class BookingItem {
     required this.distanceKm,
     required this.paymentMethod,
     this.paymentStatus,
+    this.rating = 0,
     required this.createdAt,
     required this.serviceType,
   });
@@ -107,6 +111,7 @@ class BookingItem {
       distanceKm: (json['distanceKm'] ?? 0).toDouble(),
       paymentMethod: json['paymentMethod'] ?? 'CASH',
       paymentStatus: json['paymentStatus'],
+      rating: (json['rating'] as num?)?.toInt() ?? 0,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt']) ?? DateTime.now()
           : DateTime.now(),
@@ -235,62 +240,17 @@ class _BookingHistoryState extends State<BookingHistory> {
     }
   }
 
-  /// Cancel a booking
-  Future<void> _cancelBooking(BookingItem booking) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Cancel Booking?',
-            style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-        content: Text(
-            'Are you sure you want to cancel booking #${booking.bookingNumber}?',
-            style: GoogleFonts.poppins(fontSize: 13)),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('No')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child:
-                Text('Yes, Cancel', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    try {
-      final result = await BookingService.cancelBooking(booking.id);
-      if (mounted) {
-        if (result['success'] == true) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Booking cancelled'),
-              backgroundColor: Colors.green));
-          _fetchBookings(); // Refresh
-        } else {
-          throw Exception(result['message'] ?? 'Failed to cancel');
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Error: $e'), backgroundColor: Colors.red));
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     // Separate bookings by category
     final active = _bookings.where((b) => b.isActive).toList();
-    final completed = _bookings.where((b) => b.isCompleted).toList();
-    final cancelled = _bookings.where((b) => b.isCancelled).toList();
+    // Everything finished, newest first — the API already returns them in that
+    // order, so filtering the original list preserves it rather than showing
+    // all completed above all cancelled.
+    final past = _bookings.where((b) => !b.isActive).toList();
 
     return Scaffold(
-      backgroundColor: HexColor("#FFFAF6"),
+      backgroundColor: HexColor("#FDF1E9"),
       body: Column(
         children: [
           commonAppBar(
@@ -333,40 +293,15 @@ class _BookingHistoryState extends State<BookingHistory> {
                                 return false;
                               },
                               child: ListView(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 12),
+                                padding: const EdgeInsets.only(bottom: 12),
                                 children: [
-                                  // Active Bookings
                                   if (active.isNotEmpty) ...[
-                                    _sectionHeader('Active',
-                                        active.length, HexColor("#FF6200")),
-                                    const SizedBox(height: 10),
-                                    ...active
-                                        .map((b) => _bookingCard(b)),
+                                    _sectionHeader('Active'),
+                                    ...active.map((b) => _bookingCard(b)),
                                   ],
-
-                                  // Completed Bookings
-                                  if (completed.isNotEmpty) ...[
-                                    const SizedBox(height: 20),
-                                    _sectionHeader(
-                                        'Completed',
-                                        completed.length,
-                                        HexColor("#25AA59")),
-                                    const SizedBox(height: 10),
-                                    ...completed
-                                        .map((b) => _bookingCard(b)),
-                                  ],
-
-                                  // Cancelled Bookings
-                                  if (cancelled.isNotEmpty) ...[
-                                    const SizedBox(height: 20),
-                                    _sectionHeader(
-                                        'Cancelled',
-                                        cancelled.length,
-                                        HexColor("#EE3E35")),
-                                    const SizedBox(height: 10),
-                                    ...cancelled
-                                        .map((b) => _bookingCard(b)),
+                                  if (past.isNotEmpty) ...[
+                                    _sectionHeader('Past'),
+                                    ...past.map((b) => _bookingCard(b)),
                                   ],
 
                                   if (_loadingMore)
@@ -392,33 +327,16 @@ class _BookingHistoryState extends State<BookingHistory> {
     );
   }
 
-  Widget _sectionHeader(String title, int count, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 4,
-          height: 20,
-          decoration: BoxDecoration(
-              color: color, borderRadius: BorderRadius.circular(2)),
-        ),
-        const SizedBox(width: 8),
-        Text(title,
-            style: GoogleFonts.poppins(
-                fontSize: 15, fontWeight: FontWeight.w600)),
-        const SizedBox(width: 6),
-        Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10)),
-          child: Text('$count',
-              style: GoogleFonts.poppins(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: color)),
-        ),
-      ],
+  Widget _sectionHeader(String title) {
+    return Container(
+      width: double.infinity,
+      color: HexColor("#FDF1E9"),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      child: Text(title,
+          style: GoogleFonts.poppins(
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF2A2A2A))),
     );
   }
 
@@ -475,26 +393,25 @@ class _BookingHistoryState extends State<BookingHistory> {
   Widget _bookingCard(BookingItem booking) {
     return GestureDetector(
       onTap: () {
+        // An in-flight ride opens live tracking (which is also where the pickup
+        // OTP is shown); only a finished one opens the receipt. DRAFT is a
+        // scheduled booking that was never dispatched, so it has nothing to track.
+        final bool isTrackable = booking.isActive && booking.status != 'DRAFT';
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => BookingDetailsScreen(bookingId: booking.id),
+            builder: (_) => isTrackable
+                ? TripDetailsScreen(bookingId: booking.id)
+                : BookingDetailsScreen(bookingId: booking.id),
           ),
         );
       },
       child: Container(
-      margin: const EdgeInsets.only(bottom: 14),
+      // Full-bleed white on the peach page, with the gap between cards doing
+      // the separating — the design has no rounded floating cards here.
+      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 6,
-              offset: const Offset(0, 2))
-        ],
-      ),
+      decoration: const BoxDecoration(color: Colors.white),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -533,29 +450,47 @@ class _BookingHistoryState extends State<BookingHistory> {
                   children: [
                     Row(
                       children: [
-                        Text('ID #${booking.bookingNumber}',
-                            style: GoogleFonts.poppins(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700)),
-                        const Spacer(),
+                        // Expanded: as a bare Row child this got unbounded width,
+                        // so a long server-side bookingNumber laid out at its
+                        // intrinsic size and pushed the status badge off the row.
+                        // Expanded replaces the Spacer — it already eats the
+                        // leftover space, so the badge stays right-aligned.
+                        Expanded(
+                          child: Text('ID #${booking.bookingNumber}',
+                              style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
                         _statusBadge(booking.status),
                       ],
                     ),
                     const SizedBox(height: 3),
                     Row(
                       children: [
-                        Text(booking.vehicleName ?? 'Vehicle',
-                            style: GoogleFonts.poppins(
-                                fontSize: 12, color: Colors.black54)),
+                        // Flexible: as a bare Row child this got unbounded width,
+                        // so a long server-side vehicle name overflowed the row on
+                        // its own — the driver's Flexible could only shrink to 0.
+                        Flexible(
+                          child: Text(booking.vehicleName ?? 'Vehicle',
+                              style: GoogleFonts.poppins(
+                                  fontSize: 12, color: Colors.black54),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
                         if (booking.driverName != null) ...[
                           Text('    ',
                               style: TextStyle(color: Colors.black38)),
                           Flexible(
+                            // maxLines: without it the ellipsis never applied —
+                            // the name just soft-wrapped onto a second line.
                             child: Text(booking.driverName!,
                                 style: GoogleFonts.poppins(
                                     fontSize: 12,
                                     color: HexColor("#5680E2"),
                                     fontWeight: FontWeight.w600),
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis),
                           ),
                         ],
@@ -683,9 +618,18 @@ class _BookingHistoryState extends State<BookingHistory> {
         children: [
           Icon(icon, size: 13, color: Colors.grey.shade600),
           const SizedBox(width: 4),
-          Text(text,
-              style: GoogleFonts.poppins(
-                  fontSize: 11, color: Colors.grey.shade700)),
+          // Flexible: the caller's Flexible bounds this Container, but as a bare
+          // Row child the Text still got unbounded width and laid out at its
+          // intrinsic size, so the date could never ellipsize. Flexible (not
+          // Expanded) because the fare/distance chips sit in an unbounded Row,
+          // where a tight fit would assert.
+          Flexible(
+            child: Text(text,
+                style: GoogleFonts.poppins(
+                    fontSize: 11, color: Colors.grey.shade700),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ),
         ],
       ),
     );
@@ -769,19 +713,36 @@ class _BookingHistoryState extends State<BookingHistory> {
 
   Widget _actionButtons(BookingItem booking) {
     if (booking.isActive) {
+      // Same rule as the card tap: DRAFT is a scheduled booking that was never
+      // dispatched — there is nothing to track (and TripDetails can't cancel
+      // it), so offer the details screen instead.
+      final bool isTrackable = booking.status != 'DRAFT';
       return Row(
         children: [
           Expanded(
-            child: _actionButton(
-                'Track Booking', HexColor("#FF6200"), Icons.gps_fixed,
-                () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => TripDetailsScreen(bookingId: booking.id),
-                ),
-              );
-            }),
+            child: isTrackable
+                ? _actionButton(
+                    'Track Booking', HexColor("#FF6200"), Icons.gps_fixed,
+                    () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            TripDetailsScreen(bookingId: booking.id),
+                      ),
+                    );
+                  })
+                : _actionButton(
+                    'View Details', HexColor("#FF6200"), Icons.receipt_long,
+                    () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            BookingDetailsScreen(bookingId: booking.id),
+                      ),
+                    );
+                  }),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -793,7 +754,9 @@ class _BookingHistoryState extends State<BookingHistory> {
                   builder: (_) => CancelRideScreen(bookingId: booking.id),
                 ),
               ).then((result) {
-                if (result == 'cancelled') {
+                // CancelRideScreen now pops the cancel API's payload (it used
+                // to pop the string 'cancelled'), so test for any result.
+                if (result != null) {
                   _fetchBookings(); // Refresh list
                 }
               });
@@ -853,13 +816,18 @@ class _BookingHistoryState extends State<BookingHistory> {
                 child: _actionButton('Rebook', AppColors.appColor,
                     Icons.replay, () => _rebook(booking)),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _actionButton('Rate', HexColor("#F4BE05"),
-                    Icons.star_border, () {
-                  _showRatingDialog(booking);
-                }),
-              ),
+              // Only offer this while the trip is actually unrated. The
+              // backend rejects a second rating anyway, so showing it after
+              // the fact just invited an error the customer couldn't act on.
+              if (booking.rating <= 0) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _actionButton('Rate', HexColor("#F4BE05"),
+                      Icons.star_border, () {
+                    _showRatingDialog(booking);
+                  }),
+                ),
+              ],
             ],
           ),
         ],
@@ -892,11 +860,15 @@ class _BookingHistoryState extends State<BookingHistory> {
             Icon(icon, size: 15, color: color),
             const SizedBox(width: 5),
             Flexible(
+              // maxLines: the Flexible bounds the label, but with no line limit
+              // the ellipsis never applied — 'Download Invoice' soft-wrapped to
+              // two lines and overflowed this fixed 42px button vertically.
               child: Text(text,
                   style: GoogleFonts.poppins(
                       color: color,
                       fontWeight: FontWeight.w600,
                       fontSize: 12),
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis),
             ),
             const SizedBox(width: 10),
@@ -998,20 +970,40 @@ class _BookingHistoryState extends State<BookingHistory> {
                 Navigator.pop(ctx);
                 try {
                   final token = Prefs.getString('token');
-                  await http.post(
+                  final res = await http.post(
                     Uri.parse('${ApiUrls.userBookingsUrl}/${booking.id}/rate'),
                     headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
                     body: jsonEncode({'rating': rating, 'comment': commentController.text.trim()}),
                   );
-                  if (mounted) {
+                  if (!mounted) return;
+                  // The status was never checked, so a rejected rating still
+                  // thanked the customer while the rating went nowhere.
+                  if (res.statusCode == 200 || res.statusCode == 201) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Thanks for your rating!'), backgroundColor: Colors.green),
                     );
+                    _fetchBookings();
+                  } else {
+                    String msg = 'Could not submit rating. Please try again.';
+                    try {
+                      final body = jsonDecode(res.body);
+                      if (body is Map && body['message'] is String) {
+                        msg = body['message'] as String;
+                      }
+                    } catch (_) {}
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(msg), backgroundColor: Colors.red),
+                    );
                   }
                 } catch (e) {
+                  // There is no offline queue, so claiming it "will sync when
+                  // online" was a lie — the rating was simply dropped.
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Rating submitted locally. Will sync when online.'), backgroundColor: Colors.orange),
+                      const SnackBar(
+                        content: Text('Could not submit rating. Check your connection and try again.'),
+                        backgroundColor: Colors.red,
+                      ),
                     );
                   }
                 }

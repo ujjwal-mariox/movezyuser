@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:hexcolor/hexcolor.dart';
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
-import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/home_page_model.dart';
 import 'package:movezy_user_app/Screens/LoadAssistScreen/load_assist_screen.dart';
@@ -46,15 +44,30 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
         debugPrint('[VehicleSelection]   allVehicle: id=${v.id} name=${v.name}');
       }
 
+      // Require real coordinates. These defaulted to fixed Delhi/Noida coords,
+      // so with unresolved addresses every vehicle's price/ETA below was quoted
+      // for a ~20 km Delhi→Noida trip the user never asked for.
+      final pLat = widget.bookingData.pickupLat;
+      final pLng = widget.bookingData.pickupLng;
+      final dLat = widget.bookingData.dropLat;
+      final dLng = widget.bookingData.dropLng;
+      if (pLat == null || pLng == null || dLat == null || dLng == null) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _error =
+                "We couldn't pin your pickup or drop location. Go back and choose it on the map.";
+          });
+        }
+        return;
+      }
+
       final options = await BookingService.getVehicleOptions(
-        pickup: {
-          'lat': widget.bookingData.pickupLat ?? 28.6139,
-          'lng': widget.bookingData.pickupLng ?? 77.2090,
-        },
-        drop: {
-          'lat': widget.bookingData.dropLat ?? 28.5355,
-          'lng': widget.bookingData.dropLng ?? 77.3910,
-        },
+        pickup: {'lat': pLat, 'lng': pLng},
+        drop: {'lat': dLat, 'lng': dLng},
+        // Same stops Review Booking prices with, so the figure on the card is
+        // the figure the customer ends up paying.
+        stops: widget.bookingData.stops,
         serviceType: widget.bookingData.serviceType,
         goodsTypeId: widget.bookingData.goodsTypeId,
       );
@@ -77,69 +90,19 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
       debugPrint('[VehicleSelection] API error: $e');
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          // Show the error and let them retry, rather than falling back to a
+          // list priced at each vehicle's base fare. That fallback quoted ₹149
+          // for a trip that bills ₹2,887 — it ignores distance entirely — and
+          // badged whichever vehicle happened to be first as "Recommended",
+          // a recommendation nothing had computed.
+          _error = "We couldn't load vehicle prices. Check your connection and try again.";
           _isLoading = false;
         });
-        // Fallback: use static vehicle list from bookingData
-        _useFallbackVehicles();
       }
     }
   }
 
-  /// Fallback when API call fails — use the vehicle list already in bookingData
-  void _useFallbackVehicles() {
-    final vehicles = widget.bookingData.allVehicles;
-    if (vehicles.isEmpty) return;
 
-    final fallback = vehicles.map((v) => VehicleOption(
-      vehicleTypeId: v.id,
-      name: v.name,
-      description: v.description,
-      image: v.image,
-      icon: v.icon,
-      maxWeightKg: v.maxWeightKg,
-      lengthFt: v.lengthFt,
-      breadthFt: v.breadthFt,
-      heightFt: v.heightFt,
-      baseFare: v.baseFare,
-      estimatedFare: v.baseFare,
-      distanceKm: 0,
-      estimatedDuration: 0,
-      allowIntraCity: v.allowIntraCity,
-      allowInterCity: v.allowInterCity,
-      sortOrder: v.sortOrder,
-      isRecommended: false,
-    )).toList();
-
-    // Mark first as recommended
-    if (fallback.isNotEmpty) {
-      fallback[0] = VehicleOption(
-        vehicleTypeId: fallback[0].vehicleTypeId,
-        name: fallback[0].name,
-        description: fallback[0].description,
-        image: fallback[0].image,
-        icon: fallback[0].icon,
-        maxWeightKg: fallback[0].maxWeightKg,
-        lengthFt: fallback[0].lengthFt,
-        breadthFt: fallback[0].breadthFt,
-        heightFt: fallback[0].heightFt,
-        baseFare: fallback[0].baseFare,
-        estimatedFare: fallback[0].estimatedFare,
-        distanceKm: fallback[0].distanceKm,
-        estimatedDuration: fallback[0].estimatedDuration,
-        allowIntraCity: fallback[0].allowIntraCity,
-        allowInterCity: fallback[0].allowInterCity,
-        sortOrder: fallback[0].sortOrder,
-        isRecommended: true,
-      );
-    }
-
-    setState(() {
-      _options = fallback;
-      _error = null;
-      _selectedIndex = 0;
-    });
-  }
 
   /// Convert selected VehicleOption back to HomeVehicleType for downstream screens
   HomeVehicleType _toHomeVehicleType(VehicleOption opt) {
@@ -148,6 +111,11 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
       name: opt.name,
       description: opt.description,
       maxWeightKg: opt.maxWeightKg,
+      // Dimensions too — dropping them meant LoadAssist's "Load space" line
+      // (gated on lengthFt > 0) could never render on this path.
+      lengthFt: opt.lengthFt,
+      breadthFt: opt.breadthFt,
+      heightFt: opt.heightFt,
       baseFare: opt.baseFare,
       perKmRate: 0,
       perMinuteRate: 0,
@@ -169,104 +137,8 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          // App bar
-          commonAppBar(
-            height: 105,
-            context: context,
-            child: Container(
-              padding: const EdgeInsets.only(top: 50),
-              child: Row(
-                children: [
-                  InkWell(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      padding: const EdgeInsets.only(left: 16),
-                      width: 40, height: 35,
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.arrow_back_ios, color: Colors.white),
-                    ),
-                  ),
-                  const SizedBox(width: 5),
-                  const Text("Select Vehicle", style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
-                  const Spacer(),
-                ],
-              ),
-            ),
-          ),
-
-          // Location header
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            color: HexColor("#E7F7F5"),
-            child: Column(
-              children: [
-                // Pickup → Drop display
-                Row(
-                  children: [
-                    // Pickup/Drop indicators
-                    Column(
-                      children: [
-                        Container(
-                          width: 28, height: 28,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppColors.appColor, width: 1.5),
-                          ),
-                          child: Icon(Icons.location_on, color: AppColors.appColor, size: 16),
-                        ),
-                        Container(width: 1.5, height: 24, color: Colors.grey.shade400),
-                        Container(
-                          width: 28, height: 28,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.green, width: 1.5),
-                          ),
-                          child: const Icon(Icons.flag, color: Colors.green, size: 16),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 12),
-                    // Address text
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              widget.bookingData.pickupAddress ?? 'Pickup',
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                              maxLines: 1, overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              widget.bookingData.dropAddress ?? 'Drop',
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                              maxLines: 1, overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+          // ─── Orange location header (per the design) ───
+          _locationHeader(),
 
           // Vehicle list
           Expanded(
@@ -278,45 +150,46 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         children: [
                           // Distance & duration info
-                          if (_options.isNotEmpty && _options.first.distanceKm > 0) ...[
-                            Row(
-                              children: [
-                                Icon(Icons.route, size: 16, color: Colors.grey.shade600),
-                                const SizedBox(width: 4),
-                                Text(
-                                  "${_options.first.distanceKm.toStringAsFixed(1)} km",
-                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
-                                ),
-                                const SizedBox(width: 16),
-                                Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _options.first.durationLabel,
-                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                          ],
+                          // The design has no distance/duration strip here —
+                          // each row carries its own "Kg. mins" subtitle.
 
                           // Recommended
                           if (recommended.isNotEmpty) ...[
-                            const Text("Recommended", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black87)),
-                            const SizedBox(height: 10),
+                            Text("Recommended",
+                                style: TextStyle(
+                                    fontSize: 16.5,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.grey.shade600)),
+                            const SizedBox(height: 12),
                             ...recommended.map((opt) {
                               final idx = _options.indexOf(opt);
                               return _buildVehicleCard(opt, idx, isRecommended: true);
                             }),
                           ],
 
-                          // Others
+                          // Others — flat rows separated by hairlines, not cards
                           if (others.isNotEmpty) ...[
-                            const SizedBox(height: 20),
-                            const Text("Others", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black87)),
-                            const SizedBox(height: 10),
-                            ...others.map((opt) {
+                            const SizedBox(height: 22),
+                            Text("Others",
+                                style: TextStyle(
+                                    fontSize: 16.5,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.grey.shade600)),
+                            const SizedBox(height: 4),
+                            ...others.asMap().entries.map((e) {
+                              final opt = e.value;
                               final idx = _options.indexOf(opt);
-                              return _buildVehicleCard(opt, idx);
+                              return Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildVehicleCard(opt, idx),
+                                  if (e.key != others.length - 1)
+                                    const Divider(
+                                        height: 1,
+                                        thickness: 1.5,
+                                        color: Color(0xFFFCEBE0)),
+                                ],
+                              );
                             }),
                           ],
                         ],
@@ -325,7 +198,11 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
 
           // Bottom button
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            // 24 is the design's gap; the device's real bottom inset (gesture
+            // bar / nav buttons) is added to it so the "Next / Select a
+            // vehicle" button is never underneath the system UI.
+            padding: EdgeInsets.fromLTRB(
+                16, 0, 16, 24 + MediaQuery.of(context).padding.bottom),
             child: SizedBox(
               width: double.infinity,
               height: 54,
@@ -354,6 +231,171 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
     );
   }
 
+  /// Orange header: "Add Location to Proceed" + pickup/drop + ADD STOP.
+  ///
+  /// Editing happens on the address screen, so the fields and ADD STOP pop back
+  /// there rather than duplicating that editor — stops are already modelled
+  /// (BookingData.stops) and are sent on create, so this isn't a dead control.
+  Widget _locationHeader() {
+    final stops = widget.bookingData.stops;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.only(
+          top: MediaQuery.of(context).padding.top + 14,
+          left: 16,
+          right: 16,
+          bottom: 18),
+      decoration: BoxDecoration(
+        color: AppColors.appColor,
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(28),
+          bottomRight: Radius.circular(28),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              InkWell(
+                onTap: () => Navigator.pop(context),
+                child: const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Icon(Icons.arrow_back_ios,
+                      color: Colors.white, size: 18),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  'Add Location to Proceed',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _addressRow(
+            icon: Icons.my_location,
+            iconColor: const Color(0xFF12B39A),
+            text: widget.bookingData.pickupAddress ?? 'Pickup location',
+            trailing: Icon(Icons.gps_fixed,
+                size: 20, color: AppColors.appColor),
+          ),
+          _dashedConnector(),
+          // Any intermediate stops sit between pickup and drop, in order.
+          for (final s in stops) ...[
+            _addressRow(
+              icon: Icons.adjust,
+              iconColor: const Color(0xFF12B39A),
+              text: (s['address'] ?? 'Stop').toString(),
+            ),
+            _dashedConnector(),
+          ],
+          _addressRow(
+            icon: Icons.place_outlined,
+            iconColor: const Color(0xFF12B39A),
+            text: widget.bookingData.dropAddress ?? 'Drop location',
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: InkWell(
+              onTap: () => Navigator.pop(context),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.add_circle, color: Colors.white, size: 20),
+                  SizedBox(width: 8),
+                  Text('ADD STOP',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _addressRow({
+    required IconData icon,
+    required Color iconColor,
+    required String text,
+    Widget? trailing,
+  }) {
+    return InkWell(
+      onTap: () => Navigator.pop(context),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: iconColor, size: 22),
+          ),
+          const SizedBox(width: 10),
+          // Expanded so a long address ellipsizes instead of overflowing the
+          // header — as a bare Row child it would take unbounded width.
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 14, color: Color(0xFF3D3D3D)),
+                    ),
+                  ),
+                  if (trailing != null) ...[
+                    const SizedBox(width: 8),
+                    trailing,
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The dotted link between pickup, stops and drop.
+  Widget _dashedConnector() {
+    return Padding(
+      padding: const EdgeInsets.only(left: 22),
+      child: Column(
+        children: List.generate(
+          3,
+          (_) => Container(
+            width: 2,
+            height: 4,
+            margin: const EdgeInsets.symmetric(vertical: 1.5),
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildError() {
     return Center(
       child: Column(
@@ -377,26 +419,27 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
     final isSelected = _selectedIndex == index;
     final hasEstimatedFare = option.estimatedFare > 0;
 
+    // The Recommended entry keeps its card shape, but the orange border and
+    // peach fill mean "selected" and nothing else. They used to be tied to
+    // isRecommended too, so once the user tapped another vehicle two rows
+    // looked selected at once and the recommended one could never visually
+    // deselect.
+    final boxed = isRecommended || isSelected;
+
     return GestureDetector(
       onTap: () => setState(() => _selectedIndex = index),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        margin: EdgeInsets.only(bottom: boxed ? 12 : 0),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isSelected ? const Color(0xFFFFF9F5) : Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isSelected ? AppColors.appColor : Colors.grey.shade300,
-            width: isSelected ? 2 : 1,
-          ),
-          boxShadow: [
-            if (isSelected)
-              BoxShadow(
-                color: AppColors.appColor.withOpacity(0.15),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-          ],
+          border: isSelected
+              ? Border.all(color: AppColors.appColor, width: 1.5)
+              : isRecommended
+                  // Soft outline: still reads as a card, clearly not selected.
+                  ? Border.all(color: const Color(0xFFF3DACB), width: 1.2)
+                  : null,
         ),
         child: Row(
           children: [
@@ -411,9 +454,15 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        option.name,
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                      // Expanded: as a bare Row child this got unbounded width, so a
+                      // long server-driven vehicle name could never ellipsize.
+                      Expanded(
+                        child: Text(
+                          option.name,
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                       if (isRecommended) ...[
                         const SizedBox(width: 6),
@@ -421,33 +470,43 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                     ],
                   ),
                   const SizedBox(height: 3),
-                  Text(
-                    "${option.capacityLabel}${option.dimensionsLabel.isNotEmpty ? ' • ${option.dimensionsLabel}' : ''}. ${option.durationLabel.isNotEmpty && option.estimatedDuration > 0 ? option.durationLabel : (option.allowIntraCity && option.allowInterCity ? 'City & Outstation' : option.allowIntraCity ? 'Within City' : 'Outstation')}",
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  // Design reads "50 Kg. 15 mins" — capacity in grey, the ETA
+                  // in orange, on one line.
+                  RichText(
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    text: TextSpan(
+                      style: TextStyle(
+                          fontSize: 12.5, color: Colors.grey.shade600),
+                      children: [
+                        TextSpan(text: option.capacityLabel),
+                        if (option.durationLabel.isNotEmpty &&
+                            option.estimatedDuration > 0) ...[
+                          const TextSpan(text: '. '),
+                          TextSpan(
+                            text: option.durationLabel,
+                            style: TextStyle(
+                                color: AppColors.appColor,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ] else ...[
+                          TextSpan(
+                            text:
+                                '. ${option.allowIntraCity && option.allowInterCity ? 'City & Outstation' : option.allowIntraCity ? 'Within City' : 'Outstation'}',
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
 
-            // Price
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  "₹ ${hasEstimatedFare ? option.estimatedFare.toInt() : option.baseFare.toInt()}",
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-                if (hasEstimatedFare && option.estimatedDuration > 0)
-                  Text(
-                    option.durationLabel,
-                    style: TextStyle(fontSize: 11, color: AppColors.appColor, fontWeight: FontWeight.w500),
-                  )
-                else
-                  Text(
-                    "base fare",
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                  ),
-              ],
+            const SizedBox(width: 8),
+            // Price only — the design puts the ETA in the subtitle, not here.
+            Text(
+              "₹ ${hasEstimatedFare ? option.estimatedFare.toInt() : option.baseFare.toInt()}",
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
           ],
         ),

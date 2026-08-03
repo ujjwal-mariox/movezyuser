@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'package:movezy_user_app/CommonWidgets/button_widget.dart';
+import 'package:movezy_user_app/CommonWidgets/legal_sheet.dart';
 import 'package:movezy_user_app/Screens/LoginScreen/LoginApiService/login_api_service.dart';
 import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 import 'package:movezy_user_app/Utils/CustomToast/custome_toast.dart';
@@ -19,6 +21,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // viewPadding (not padding): padding.bottom collapses to 0 while the
+    // keyboard is open, which made the card's bottom rows jump as soon as the
+    // phone field was focused.
+    final bottomInset = MediaQuery.of(context).viewPadding.bottom;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SingleChildScrollView(
@@ -140,6 +147,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 right: 0,
                 child: Container(
                   height: MediaQuery.of(context).size.height * 0.58,
+                  // This card is flush with the bottom of the screen, so its
+                  // last rows (the WhatsApp opt-in and the terms line) sat
+                  // underneath the gesture bar / nav buttons. Reserve the
+                  // device's real bottom inset rather than guessing a constant.
+                  padding: EdgeInsets.only(bottom: bottomInset),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.only(topLeft: Radius.circular(25), topRight: Radius.circular(25))
@@ -225,7 +237,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 showLoader = true;
                               });
 
-                              await LoginApiService().loginApi(context, _phoneController.text.toString());
+                              await LoginApiService().loginApi(
+                                  context, _phoneController.text.toString(),
+                                  whatsappOptIn: _isChecked);
 
                               if (mounted) {
                                 setState(() {
@@ -252,6 +266,12 @@ class _LoginScreenState extends State<LoginScreen> {
                               children: [
                                 TextSpan(
                                   text: "Terms of use",
+                                  // Styled as a link but had no recognizer, so
+                                  // the user was asked to accept terms they had
+                                  // no way to read.
+                                  recognizer: TapGestureRecognizer()
+                                    ..onTap = () => showLegalSheet(context,
+                                        'Terms & Conditions', LegalText.terms),
                                   style:  TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
@@ -268,6 +288,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 TextSpan(
                                   text: "Privacy Policy",
+                                  recognizer: TapGestureRecognizer()
+                                    ..onTap = () => showLegalSheet(context,
+                                        'Privacy Policy', LegalText.privacy),
                                   style:  TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
@@ -315,7 +338,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
                             SizedBox(width: 7,),
 
-                            Text("Get notifications on ", style: TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.w500),),
+                            // Flexible: as a bare Row child this got unbounded
+                            // width, so it could never ellipsize and the row
+                            // overflowed on narrow screens / large text scale.
+                            Flexible(
+                              child: Text(
+                                "Get notifications on ",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.w500),
+                              ),
+                            ),
 
                             SizedBox(width: 5,),
 

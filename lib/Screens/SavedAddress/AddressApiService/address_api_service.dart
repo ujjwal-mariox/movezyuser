@@ -157,13 +157,27 @@ class AddressApiService {
   }
 
   // Update existing address
+  /// Update carries the SAME fields as create.
+  ///
+  /// It used to send only {houseNo, area, city, state, pinCode}, so editing an
+  /// address silently discarded the contact name, the mobile number and —
+  /// worst — the map pin. A customer who corrected their pin got "Address
+  /// updated successfully" while every future booking kept routing to the old
+  /// coordinates. The backend was never the constraint: updateUserAddress does
+  /// findByIdAndUpdate(id, req.body) and the model declares all of these.
   static Future<AddressResponse?> updateAddress({
     required String addressId,
+    required String fullName,
+    required String mobileNumber,
     required String houseNo,
     required String area,
     required String city,
     required String state,
+    required String country,
     required int pinCode,
+    required String addressType,
+    required double latitude,
+    required double longitude,
     required BuildContext context,
   }) async {
     try {
@@ -188,11 +202,17 @@ class AddressApiService {
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
+          'fullName': _sanitizeInput(fullName),
+          'mobileNumber': _sanitizeInput(mobileNumber),
           'houseNo': sanitizedHouseNo,
           'area': sanitizedArea,
           'city': sanitizedCity,
           'state': sanitizedState,
+          'country': _sanitizeInput(country),
           'pinCode': pinCode,
+          'addressType': addressType,
+          'latitude': latitude,
+          'longitude': longitude,
         }),
       );
 

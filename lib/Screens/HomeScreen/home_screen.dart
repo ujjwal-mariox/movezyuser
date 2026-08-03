@@ -9,7 +9,9 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
+import 'package:intl/intl.dart';
 import 'package:movezy_user_app/Screens/SearchScreen/search_screen.dart';
+import 'package:movezy_user_app/Screens/BookingHistory/booking_history.dart';
 import 'package:movezy_user_app/Screens/HelpSupportScreen/help_support_screen.dart';
 import 'package:movezy_user_app/Screens/RechangeWalletApp/recharge_wallet_screen.dart';
 import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
@@ -36,6 +38,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   bool _isLoading = true;
   int _currentPromoIndex = 0;
   Timer? _promoTimer;
+
+  // Header vehicle ticker (per the Figma export: the strip holds every
+  // vehicle side by side and slides through them — 2 Wheeler, 3 Wheeler, …).
+  int _headerVehicleIndex = 0;
+  Timer? _headerVehicleTimer;
   bool _showGstCard = true;
   bool _hasGst = false;
 
@@ -48,6 +55,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   // Dummy nearby vehicles for Uber-like effect
   List<_DummyVehicle> _nearbyVehicles = [];
 
+  // Recent orders for the home History section
+  List<BookingItem> _recentOrders = [];
+
   // Wallet balance
   double _walletBalance = 0;
 
@@ -55,16 +65,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   late AnimationController _deliveryAnimController;
   late Animation<double> _deliverySlide;
 
-  // ─── Trust ribbon ───
-  late AnimationController _ribbonController;
-  final List<String> _trustBadges = [
-    '✓ Verified Drivers',
-    '🛡 Insured Deliveries',
-    '📞 24/7 Support',
-    '💰 Transparent Pricing',
-    '📦 10,000+ Deliveries Completed',
-  ];
-  int _currentBadgeIndex = 0;
+  // Trust ribbon removed to match the design. Its AnimationController drove a
+  // setState loop that rebuilt the whole home tree every few seconds, so the
+  // controller and badge list are gone too rather than left spinning unseen.
 
   @override
   void initState() {
@@ -80,23 +83,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
       CurvedAnimation(parent: _deliveryAnimController, curve: Curves.easeInOut),
     );
 
-    // Trust ribbon rotation controller
-    _ribbonController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 3),
-    )..addStatusListener((status) {
-        if (status == AnimationStatus.completed) {
-          if (mounted) {
-            setState(() {
-              _currentBadgeIndex = (_currentBadgeIndex + 1) % _trustBadges.length;
-            });
-          }
-          _ribbonController.reset();
-          _ribbonController.forward();
-        }
-      });
-    _ribbonController.forward();
-
     // Defer ALL heavy work until after the first frame paints
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initAll();
@@ -107,14 +93,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _promoTimer?.cancel();
+    _headerVehicleTimer?.cancel();
     _deliveryAnimController.dispose();
-    _ribbonController.dispose();
     _mapController?.dispose();
     super.dispose();
   }
 
-  /// Auto-advance the promo/offer carousel every 4 seconds.
-  /// Safe to call multiple times — it resets any existing timer.
+  /// Slide the header through the vehicle catalog, one every few seconds —
+  /// the design's strip holds every vehicle side by side and animates through
+  /// them. Safe to call multiple times; resets any existing timer.
+  void _startHeaderVehicleRotation() {
+    _headerVehicleTimer?.cancel();
+    if (_vehicleTypes.length < 2) return; // nothing to rotate
+    _headerVehicleTimer =
+        Timer.periodic(const Duration(milliseconds: 3500), (_) {
+      if (!mounted) return;
+      setState(() {
+        _headerVehicleIndex =
+            (_headerVehicleIndex + 1) % _vehicleTypes.length;
+      });
+    });
+  }
+
   void _startPromoRotation() {
     _promoTimer?.cancel();
     if (_promoBanners.length < 2) return; // nothing to rotate
@@ -155,6 +155,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
         }
       });
       _startPromoRotation();
+    _startHeaderVehicleRotation();
     } catch (e) {
       debugPrint('[Home] Refresh error: $e');
     }
@@ -202,6 +203,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
       }
     });
     _startPromoRotation();
+    _startHeaderVehicleRotation();
+    // Non-blocking: the History section fills in when it arrives.
+    _loadRecentOrders();
   }
 
   Future<void> _getUserLocation() async {
@@ -481,9 +485,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
                           },
                           child: _buildHeaderVehicleInfo(),
                         ),
-                        const SizedBox(height: 12),
-                        // ─── Trust Ribbon ───
-                        _buildTrustRibbon(),
+                        // Trust ribbon ("24/7 Support" rotator) removed — the
+                        // design has no such strip between the header vehicle
+                        // info and the pickup box.
                       ],
                     ),
                   ),
@@ -510,38 +514,116 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
 
   /// Header bar showing first vehicle availability info
   Widget _buildHeaderVehicleInfo() {
-    final firstVehicle = _vehicleTypes.isNotEmpty ? _vehicleTypes.first : null;
-    final vehicleName = firstVehicle?.name ?? "2 Wheeler";
-    final baseFare = firstVehicle?.baseFare.toInt() ?? 50;
+    // Rotating ticker: _headerVehicleIndex advances on a timer, and the
+    // AnimatedSwitcher slides each vehicle's entry in from the right, matching
+    // the design's side-by-side strip. Falls back gracefully to a static row
+    // when the catalog has 0 or 1 vehicles.
+    final firstVehicle = _vehicleTypes.isNotEmpty
+        ? _vehicleTypes[_headerVehicleIndex % _vehicleTypes.length]
+        : null;
 
+    // No catalog, nothing to say. This used to fall back to a "2 Wheeler"
+    // starting at ₹50 — a vehicle and a price the server never sent, shown
+    // exactly like real ones, on the very screen where the fare promise is
+    // made. While the load is in flight the strip just holds its height so
+    // the header doesn't jump; if the catalog failed it collapses and the
+    // grid below carries the real error and retry (_buildVehicleLoadError).
+    if (firstVehicle == null) {
+      return SizedBox(height: _isLoading ? 47 : 0);
+    }
+
+    final vehicleName = firstVehicle.name;
+    final baseFare = firstVehicle.baseFare.toInt();
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 450),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.25, 0),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
+        ),
+      ),
+      child: _headerVehicleRow(
+        key: ValueKey(_headerVehicleIndex),
+        vehicle: firstVehicle,
+        vehicleName: vehicleName,
+        baseFare: baseFare,
+      ),
+    );
+  }
+
+  /// One entry of the header ticker. The vehicle is non-null by construction —
+  /// [_buildHeaderVehicleInfo] returns early when the catalog is empty, so
+  /// there is no path here that has to invent a name or a fare.
+  Widget _headerVehicleRow({
+    required Key key,
+    required HomeVehicleType vehicle,
+    required String vehicleName,
+    required int baseFare,
+  }) {
+    final firstVehicle = vehicle;
+    final etaMins = _nearestDriverEta();
     return Row(
+      key: key,
       children: [
-        Column(
+        // Flexible: as a bare Row child this Column got unbounded width, so the
+        // server-driven vehicle name laid out at full intrinsic width and could
+        // never ellipsize — a long catalog name ran off the header.
+        Flexible(
+          child: Column(
           mainAxisAlignment: MainAxisAlignment.end,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(vehicleName, textAlign: TextAlign.start,
-              style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-            Text("AVAILABLE", textAlign: TextAlign.start,
-              style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500)),
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600, letterSpacing: -0.36)),
+            // The design reads "AVAILABLE" here. It used to be hardcoded, which
+            // claimed availability with zero drivers online — so it's now driven
+            // by the real nearby-driver list this screen already loads. With no
+            // driver nearby we fall back to the capacity, which is always true.
+            if (_nearbyVehicles.isNotEmpty)
+              const Text("AVAILABLE",
+                textAlign: TextAlign.start,
+                style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w400, letterSpacing: 0.2))
+            else if (firstVehicle.maxWeightKg > 0)
+              Text("Up to ${firstVehicle.maxWeightKg.toInt()} kg",
+                textAlign: TextAlign.start,
+                style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500)),
           ],
+          ),
         ),
         SizedBox(width: 5),
-        firstVehicle?.image != null && firstVehicle!.image!.isNotEmpty
+        firstVehicle.image != null && firstVehicle.image!.isNotEmpty
             ? ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: Image.network(
                   ApiUrls.imageProxyUrl(firstVehicle.image!),
-                  width: 45, height: 35, cacheWidth: 90, cacheHeight: 70, fit: BoxFit.contain,
+                  width: 61, height: 47, cacheWidth: 122, cacheHeight: 94, fit: BoxFit.contain,
                   errorBuilder: (_, _, _) => Image.asset("assets/delivery_scooter.png", width: 45),
                 ),
               )
             : Image.asset("assets/delivery_scooter.png", width: 45),
         const SizedBox(width: 8),
         Flexible(
+          // Design reads "15 mins away | Starting from ₹50". The ETA used to be
+          // the literal string "15 mins" with nothing behind it. It's now
+          // computed from the CLOSEST REAL nearby driver, and simply omitted
+          // when no driver is around — so it is never an invented number.
+          // The fare is dropped the same way when the catalog carries no
+          // baseFare for this vehicle, rather than advertising "from ₹0".
           child: Text(
-            "15 mins away  |  Starting from ₹$baseFare",
+            [
+              if (etaMins != null) "$etaMins mins away",
+              if (baseFare > 0) "Starting from ₹$baseFare",
+            ].join("  |  "),
             style: TextStyle(color: Colors.white, fontSize: 11),
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         ),
@@ -549,61 +631,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
     );
   }
 
-  /// Rotating trust ribbon with animated fade
-  Widget _buildTrustRibbon() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 600),
-        transitionBuilder: (child, animation) {
-          return FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0.0, 0.3),
-                end: Offset.zero,
-              ).animate(animation),
-              child: child,
-            ),
-          );
-        },
-        child: Row(
-          key: ValueKey<int>(_currentBadgeIndex),
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              _trustBadges[_currentBadgeIndex],
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.3,
-              ),
-            ),
-            const SizedBox(width: 8),
-            ...List.generate(
-              _trustBadges.length,
-              (i) => Container(
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                width: 5,
-                height: 5,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: i == _currentBadgeIndex
-                      ? Colors.white
-                      : Colors.white.withOpacity(0.4),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+
+  /// Rough pickup ETA in minutes from the nearest online driver, or null when
+  /// none is nearby.
+  ///
+  /// Straight-line distance at a nominal city speed — deliberately coarse, and
+  /// only ever shown when a real driver exists to measure against. A precise
+  /// figure would need a routing call and a chosen pickup point, neither of
+  /// which this screen has.
+  int? _nearestDriverEta() {
+    if (_nearbyVehicles.isEmpty) return null;
+    double? nearestMetres;
+    for (final v in _nearbyVehicles) {
+      final d = Geolocator.distanceBetween(
+        _userLocation.latitude,
+        _userLocation.longitude,
+        v.position.latitude,
+        v.position.longitude,
+      );
+      if (nearestMetres == null || d < nearestMetres) nearestMetres = d;
+    }
+    if (nearestMetres == null) return null;
+    const cityKmph = 18.0; // conservative urban average
+    final mins = (nearestMetres / 1000) / cityKmph * 60;
+    return mins.ceil().clamp(1, 60);
   }
 
   // ─── PICKUP BOX ───
@@ -628,7 +679,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
                 mainAxisAlignment: MainAxisAlignment.start,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Pick up from", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                  Text("Pick up from",
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.appColor)),
                   SizedBox(height: 8),
                   Text(_userAddress, style: TextStyle(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
@@ -646,20 +701,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 25),
+          // Hugs the tiles: the cream panel is only a backdrop for the grid, so
+          // it takes the design's 26pt side margins and just enough top/bottom
+          // to breathe rather than the deep inset it had.
+          padding: const EdgeInsets.only(left: 26, right: 26, top: 12, bottom: 14),
           decoration: BoxDecoration(
-            color: HexColor("#FFEDE2"),
+            color: HexColor("#FFF1E8"),
             borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
           ),
           child: _isLoading
               ? Center(child: Padding(padding: const EdgeInsets.all(40), child: CircularProgressIndicator(color: AppColors.appColor)))
               : _vehicleTypes.isEmpty
-                  ? _buildFallbackGrid()
+                  ? _buildVehicleLoadError()
                   : GridView.builder(
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, childAspectRatio: 1.1, mainAxisSpacing: 16, crossAxisSpacing: 16),
+                      // Per the design: 154×130pt tiles, 15pt gutters, inside
+                      // 26pt margins on a 375pt frame — slightly WIDER than
+                      // tall. This drew 0.78 (much taller than wide), which
+                      // squeezed the art into a narrow column.
+                      // Overflow is handled in the tile itself: the art is
+                      // Expanded, so a narrow screen or a large font scale
+                      // shrinks the image rather than bursting the cell.
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, childAspectRatio: 1.18, mainAxisSpacing: 15, crossAxisSpacing: 15),
                       itemCount: _vehicleTypes.length,
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
+                      // Both of these matter. A vertical ScrollView with no
+                      // controller is `primary`, and a primary view with null
+                      // padding adopts the ambient MediaQuery padding as its
+                      // own — here the status bar (36) plus, because the
+                      // Scaffold sets extendBody with a 107pt bottom nav, a
+                      // ~130pt bottom inset. That padded the cream panel out to
+                      // 512pt for a grid needing 346, which no padding value on
+                      // the Container could undo.
+                      primary: false,
+                      padding: EdgeInsets.zero,
                       itemBuilder: (context, index) => _buildDynamicVehicleBox(_vehicleTypes[index]),
                     ),
         ),
@@ -679,9 +754,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
                 SizedBox(height: 20),
                 buildGSTCard(),
               ],
+              const SizedBox(height: 22),
+              // ─── SERVICE HIGHLIGHTS (Secure Shipment / Multiple Drop) ───
+              _buildServiceHighlights(),
               SizedBox(height: 20),
-              // ─── NEARBY VEHICLES MAP ───
+              // ─── NEARBY VEHICLES MAP ("Delivery chahiye?") ───
               _buildNearbyMap(),
+              const SizedBox(height: 22),
+              // ─── RECENT ORDERS ───
+              _buildHistorySection(),
               const SizedBox(height: 80), // bottom nav space
             ],
           ),
@@ -690,23 +771,353 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
     );
   }
 
-  // ─── MAP SECTION (lazy-loaded, only renders when location is ready) ───
-  Widget _buildNearbyMap() {
+  /// Both service cards start a booking — that's where insurance and extra
+  /// stops are actually chosen, so they lead somewhere real rather than being
+  /// decorative tiles.
+  void _onServiceCardTap() => _navigateAndRefresh(
+        SearchScreen(bookingData: BookingData(allVehicles: _vehicleTypes)),
+      );
+
+  /// Recent orders for the home "History" section.
+  Future<void> _loadRecentOrders() async {
+    try {
+      final res = await http.get(
+        Uri.parse('${ApiUrls.userBookingsUrl}?page=1&limit=3'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${Prefs.getString('token')}',
+        },
+      ).timeout(const Duration(seconds: 20));
+      if (!mounted || res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      final raw = (body['data'] is Map)
+          ? (body['data']['bookings'] ?? body['data']['data'] ?? [])
+          : [];
+      if (raw is! List) return;
+      setState(() {
+        _recentOrders = raw
+            .whereType<Map>()
+            .map((b) => BookingItem.fromJson(Map<String, dynamic>.from(b)))
+            .toList();
+      });
+    } catch (e) {
+      // Non-fatal: the section simply doesn't render.
+      debugPrint('[Home] Recent orders error: $e');
+    }
+  }
+
+  Widget _buildHistorySection() {
+    if (_recentOrders.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("Vehicles Near You", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-          SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: SizedBox(
-              height: 220,
-              child: _mapReady ? _buildMapWidget() : _buildMapPlaceholder(),
+          Row(
+            children: [
+              Text('History',
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.appColor)),
+              const Spacer(),
+              InkWell(
+                onTap: () => pushTo(context, const BookingHistory()),
+                child: const Text('View all',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black54)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          for (final o in _recentOrders) ...[
+            _historyCard(o),
+            const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _historyCard(BookingItem o) {
+    final completed = o.status.toUpperCase() == 'COMPLETED';
+    final cancelled = o.status.toUpperCase() == 'CANCELLED';
+    final tone = completed
+        ? const Color(0xFF4EBF66)
+        : cancelled
+            ? const Color(0xFFC4213A)
+            : AppColors.appColor;
+    final label = o.status.isEmpty
+        ? '—'
+        : '${o.status[0].toUpperCase()}${o.status.substring(1).toLowerCase()}';
+
+    return InkWell(
+      onTap: () => pushTo(context, const BookingHistory()),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFDCE8E9)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        o.bookingNumber.isEmpty
+                            ? 'ORD'
+                            : 'ORD#${o.bookingNumber}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w800),
+                      ),
+                      if ((o.dropContact ?? '').isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text('Recipient: ${o.dropContact}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey.shade600)),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    // Solid badge with white text, per the design's
+                    // "Completed" chip (#4EBF66, radius 3).
+                    color: completed ? tone : tone.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text(label,
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: completed ? Colors.white : tone)),
+                ),
+              ],
             ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.location_on_outlined,
+                    size: 15, color: Colors.grey.shade500),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '${o.pickupAddress} → ${o.dropAddress}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 12,
+                        height: 1.3,
+                        color: Colors.grey.shade700),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              DateFormat('dd MMMM yyyy, h:mma').format(o.createdAt),
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// "Add Location to Proceed" + the two service cards from the design.
+  ///
+  /// Both point at capabilities that genuinely exist: Secure Shipment is the
+  /// live INSURANCE add-on, and Multiple Drop is the booking `stops[]` support.
+  /// Tapping either starts a booking, which is where both are actually applied.
+  Widget _buildServiceHighlights() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Add Location to Proceed',
+            style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          _serviceCard(
+            icon: Icons.verified_user_outlined,
+            title: 'Secure Shipment',
+            subtitle:
+                'Comprehensive coverage against loss, theft, or damage.',
+          ),
+          const SizedBox(height: 12),
+          _serviceCard(
+            icon: Icons.alt_route,
+            title: 'Single-Point Multiple Drop',
+            subtitle:
+                'One pickup, multiple drop-offs in a single journey.',
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _serviceCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return InkWell(
+      onTap: _onServiceCardTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(color: const Color(0xFFE8E8E8)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 2,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.appColor.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 22, color: AppColors.appColor),
+            ),
+            const SizedBox(width: 12),
+            // Expanded so the copy wraps instead of overflowing — as a bare Row
+            // child it would get unbounded width and never wrap.
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 14.5, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.3,
+                        color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.arrow_outward, size: 18, color: AppColors.appColor),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── MAP SECTION (lazy-loaded, only renders when location is ready) ───
+  /// "Delivery chahiye? / Movezy kar dega aaj" card, per the design.
+  ///
+  /// The map on the right stays the LIVE one with real nearby-driver markers
+  /// rather than a flat picture — same artwork role in the layout, but it
+  /// actually reflects who is around.
+  Widget _buildNearbyMap() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: InkWell(
+        onTap: () => _navigateAndRefresh(
+          SearchScreen(bookingData: BookingData(allVehicles: _vehicleTypes)),
+        ),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFECECEC),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              // Expanded so the headline wraps instead of overflowing next to
+              // the fixed-width map.
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 18, 10, 18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Delivery chahiye?',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black),
+                      ),
+                      const SizedBox(height: 2),
+                      RichText(
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        text: TextSpan(
+                          style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black),
+                          children: [
+                            TextSpan(
+                                text: 'Movezy ',
+                                style: TextStyle(color: AppColors.appColor)),
+                            const TextSpan(text: 'kar dega aaj'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topRight: Radius.circular(9),
+                  bottomRight: Radius.circular(9),
+                ),
+                child: SizedBox(
+                  width: 191,
+                  height: 107,
+                  child: _mapReady ? _buildMapWidget() : _buildMapPlaceholder(),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -718,19 +1129,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
         color: HexColor("#FFF3EC"),
         borderRadius: BorderRadius.circular(16),
       ),
+      // Compact: this sits in the 150x120 slot of the "Delivery chahiye?" card,
+      // so the label is short and padded rather than a full-width sentence.
       child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.appColor),
-            ),
-            const SizedBox(height: 10),
-            Text("Finding vehicles near you...",
-                style: TextStyle(color: Colors.grey[600], fontSize: 13)),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: AppColors.appColor),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Finding vehicles…",
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.grey[600], fontSize: 11.5),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -788,16 +1210,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
 
   // ─── VEHICLE GRID HELPERS ───
 
-  Widget _buildFallbackGrid() {
-    return GridView.count(
-      crossAxisCount: 2, childAspectRatio: 1.1, mainAxisSpacing: 16, crossAxisSpacing: 16,
-      shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-      children: [
-        buildVehicleBox("2 Wheeler", "10kg, 2 Feet", "assets/2_wheeler.png"),
-        buildVehicleBox("Tempu", "1.2 Ton, 7 Feet", "assets/tempu.png"),
-        buildVehicleBox("Pickup", "1.2 Ton, 7 Feet", "assets/pick_up.png"),
-        buildVehicleBox("Large Truck", "5 Ton, 14 Feet", "assets/large_truck.png"),
-      ],
+  /// Shown when the vehicle list can't be loaded.
+  ///
+  /// This used to render four hardcoded vehicles ("Tempu", "Large Truck"...)
+  /// as though they were the real catalog. None of them carry a vehicleTypeId,
+  /// so tapping one could not price or book anything — and they don't even
+  /// match the live catalog, which is 2 Wheeler / 3 wheeler / Scooter. An
+  /// honest failure the customer can retry beats a menu of vehicles that
+  /// don't exist.
+  Widget _buildVehicleLoadError() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Column(
+        children: [
+          Icon(Icons.local_shipping_outlined,
+              size: 40, color: Colors.grey.shade400),
+          const SizedBox(height: 12),
+          const Text(
+            "Couldn't load vehicles",
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "Check your connection and try again.",
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: _refreshData,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text("Retry"),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.appColor,
+              side: BorderSide(color: AppColors.appColor),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -805,30 +1254,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
     return InkWell(
       onTap: () => _onVehicleTapped(vehicle),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(26),
+          borderRadius: BorderRadius.circular(20),
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8, offset: const Offset(0, 2))],
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            vehicle.image != null && vehicle.image!.isNotEmpty
-                ? Image.network(
-                    ApiUrls.imageProxyUrl(vehicle.image!),
-                    height: 55, cacheWidth: 150, cacheHeight: 110, fit: BoxFit.contain,
-                    loadingBuilder: (context, child, progress) {
-                      if (progress == null) return child;
-                      return SizedBox(height: 55, child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.appColor)));
-                    },
-                    errorBuilder: (_, _, _) => Icon(Icons.local_shipping, size: 45, color: AppColors.appColor),
-                  )
-                : Icon(Icons.local_shipping, size: 45, color: AppColors.appColor),
-            const SizedBox(height: 10),
+            // The art takes whatever height the two labels leave — a bit over
+            // half the tile, as the design has it. Expanded rather than a fixed
+            // 84px so the image shrinks on a narrow screen or at a large font
+            // scale instead of overflowing the cell.
+            Expanded(
+              child: vehicle.image != null && vehicle.image!.isNotEmpty
+                  ? Image.network(
+                      ApiUrls.imageProxyUrl(vehicle.image!),
+                      width: double.infinity,
+                      // Only cacheHeight: passing both dimensions decodes to
+                      // exactly that box and can distort the art's aspect.
+                      cacheHeight: 220,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.appColor));
+                      },
+                      errorBuilder: (_, _, _) => FittedBox(fit: BoxFit.contain, child: Icon(Icons.local_shipping, size: 70, color: AppColors.appColor)),
+                    )
+                  : FittedBox(fit: BoxFit.contain, child: Icon(Icons.local_shipping, size: 70, color: AppColors.appColor)),
+            ),
+            const SizedBox(height: 8),
             Text(vehicle.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 4),
-            Text("${vehicle.capacityLabel}, Starting ₹${vehicle.baseFare.toInt()}", style: const TextStyle(color: Colors.grey, fontSize: 12), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 3),
+            // "10kg, 2 Feet" as the design has it, when the catalog carries the
+            // dimension. Most vehicle types here don't, so fall back to the
+            // price rather than print "0 Feet".
+            Text(
+              vehicle.dimensionsLabel.isNotEmpty
+                  ? "${vehicle.capacityLabel}, ${vehicle.dimensionsLabel}"
+                  : "${vehicle.capacityLabel}, Starting ₹${vehicle.baseFare.toInt()}",
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ),
@@ -892,71 +1362,65 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
                             style: GoogleFonts.poppins(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w500)),
-                        Text(promo.code,
-                            style: GoogleFonts.poppins(
-                                color: Colors.orange,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold)),
+                        // Flexible: as a bare Row child the server-driven code
+                        // got unbounded width, so a long code could never
+                        // ellipsize and pushed the row past the card.
+                        Flexible(
+                          child: Text(promo.code,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.poppins(
+                                  color: Colors.orange,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold)),
+                        ),
                       ],
                     ),
                   ],
                 ),
               ),
-              Text(
-                  "${_currentPromoIndex + 1}/${_promoBanners.length}",
-                  style: GoogleFonts.poppins(
-                      fontSize: 14, fontWeight: FontWeight.w600)),
+              // Counter + page dashes, per the design ("1\3" over three small
+              // bars with the active one orange).
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                      "${_currentPromoIndex + 1}/${_promoBanners.length}",
+                      style: GoogleFonts.poppins(
+                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (int i = 0; i < _promoBanners.length; i++)
+                        Container(
+                          width: 8,
+                          height: 3,
+                          margin: const EdgeInsets.only(left: 4),
+                          decoration: BoxDecoration(
+                            color: i == _currentPromoIndex
+                                ? HexColor("#FF6200")
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ],
           ),
         ),
       );
     }
 
-    // Fallback
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: HexColor("#E9E9E9")),
-          gradient: LinearGradient(
-              colors: [HexColor("#FEFEF6"), HexColor("#FDF6AB")]),
-        ),
-        child: Row(
-          children: [
-            Image.asset("assets/gift_icon.png", width: 36),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Flat 20% Off Second Order",
-                      style: GoogleFonts.poppins(
-                          fontSize: 13, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Text("Use Code: ",
-                          style: GoogleFonts.poppins(
-                              fontSize: 13, fontWeight: FontWeight.w500)),
-                      Text("MOVEZY1",
-                          style: GoogleFonts.poppins(
-                              color: Colors.orange,
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            Text("1/1",
-                style: GoogleFonts.poppins(
-                    fontSize: 14, fontWeight: FontWeight.w600)),
-          ],
-        ),
-      ),
-    );
+    // No real promos → show nothing.
+    // This used to fall back to a hardcoded "Flat 20% Off Second Order / Use
+    // Code: MOVEZY1" card. No such promo exists server-side, so anyone who
+    // typed it got "Invalid promo code" — an advert for a discount we don't
+    // honour. Better an empty space than a broken promise.
+    return const SizedBox.shrink();
   }
 
   // ─── GST CARD ───
@@ -974,10 +1438,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
           children: [
             Image.asset("assets/tax_icon.png", width: 32),
             const SizedBox(width: 10),
-            Text("Have a\nGST Number?",
-                style: GoogleFonts.poppins(
-                    fontSize: 13, fontWeight: FontWeight.bold)),
-            const Spacer(),
+            // Expanded, replacing a bare Text + Spacer: the Spacer left the
+            // label unbounded, so icon + label + both buttons already didn't
+            // fit on a narrow screen. Expanded claims the same free space the
+            // Spacer did — buttons still sit right — but lets the label shrink.
+            Expanded(
+              child: Text("Have a\nGST Number?",
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                      fontSize: 13, fontWeight: FontWeight.bold)),
+            ),
             _buildGstButton("Yes",
                 onTap: () => _showGstSheet(context)),
             const SizedBox(width: 8),
@@ -1214,10 +1685,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text("Choose your service",
-                      style: GoogleFonts.poppins(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700)),
+                  // Flexible: a bare Text in this Row had unbounded width, so at
+                  // a large font scale the title collided with the close button
+                  // instead of ellipsizing.
+                  Flexible(
+                    child: Text("Choose your service",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.poppins(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700)),
+                  ),
                   InkWell(
                     onTap: () => Navigator.pop(ctx),
                     child: Container(

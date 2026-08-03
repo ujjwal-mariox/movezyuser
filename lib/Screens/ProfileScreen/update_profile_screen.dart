@@ -699,19 +699,24 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFFDF6EF),
-      bottomNavigationBar: Container(
-        color: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
-        child: ButtonWidget(
-          text: isLoading ? "Updating..." : "Save Changes",
-          onTap: isLoading ? null : _updateProfile,
-          backgroundColor: isLoading ? Colors.grey : AppColors.appColor,
-          textStyle: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-            fontSize: 16,
+      // SafeArea(top: false): the bar itself applies no inset, so "Save Changes"
+      // sat partly under the gesture bar / nav buttons.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+          child: ButtonWidget(
+            text: isLoading ? "Updating..." : "Save Changes",
+            onTap: isLoading ? null : _updateProfile,
+            backgroundColor: isLoading ? Colors.grey : AppColors.appColor,
+            textStyle: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 16,
+            ),
+            borderRadius: BorderRadius.circular(10),
           ),
-          borderRadius: BorderRadius.circular(10),
         ),
       ),
       body: SingleChildScrollView(

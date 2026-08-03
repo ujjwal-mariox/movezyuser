@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:movezy_user_app/CommonWidgets/button_widget.dart';
+import 'package:movezy_user_app/CommonWidgets/legal_sheet.dart';
 import 'package:movezy_user_app/Screens/OtpScreen/OtpApiService/otp_api_service.dart';
 import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 import 'package:movezy_user_app/Utils/CustomToast/custome_toast.dart';
@@ -90,10 +92,26 @@ class _OtpScreenState extends State<OtpScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Size the boxes to the screen instead of hardcoding 50.
+    //
+    // Six boxes at 50 wide plus 3+3 margin need 336px, but the Pinput sits in a
+    // container with 30px margins each side — so it only fitted screens wider
+    // than ~396dp. On a 360dp phone it overflowed by ~36px, and on a 320dp one
+    // by ~76px, in the OTP step every single user has to pass through.
+    const pinCount = 6;
+    const pinGap = 3.0; // left + right margin per box
+    const sideMargin = 30.0; // the parent container's margin, each side
+    final available =
+        MediaQuery.of(context).size.width - (sideMargin * 2);
+    final pinWidth =
+        ((available / pinCount) - (pinGap * 2)).clamp(36.0, 50.0);
+
+    final bottomInset = MediaQuery.of(context).viewPadding.bottom;
+
     final defaultPinTheme = PinTheme(
-      width: 50,
+      width: pinWidth,
       height: 50,
-      margin: EdgeInsets.only(left: 3, right: 3),
+      margin: EdgeInsets.only(left: pinGap, right: pinGap),
       textStyle: const TextStyle(
         fontSize: 17,
         fontWeight: FontWeight.w400,
@@ -109,9 +127,10 @@ class _OtpScreenState extends State<OtpScreen> {
     );
 
     final focusedPinTheme = PinTheme(
-      width: 50,
+      // Must match defaultPinTheme, or the boxes jump width on focus.
+      width: pinWidth,
       height: 50,
-      margin: EdgeInsets.only(left: 3, right: 3),
+      margin: EdgeInsets.only(left: pinGap, right: pinGap),
       textStyle: const TextStyle(
         fontSize: 17,
         fontWeight: FontWeight.w400,
@@ -152,7 +171,11 @@ class _OtpScreenState extends State<OtpScreen> {
       ),
       backgroundColor: Colors.white,
       body: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 0),
+        // The Verify button and the terms line are the tail of a full-height
+        // Column, so they sat under the gesture bar / nav buttons. viewPadding
+        // (not padding): padding.bottom is reported as 0 while the keyboard is
+        // up, so the button jumped every time the OTP keypad opened or closed.
+        padding: EdgeInsets.only(bottom: bottomInset),
         child: Stack(
           children: [
             Column(
@@ -286,6 +309,10 @@ class _OtpScreenState extends State<OtpScreen> {
                         children: [
                           TextSpan(
                             text: "Terms of Services",
+                            // Was link-styled with no recognizer — dead text.
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () => showLegalSheet(context,
+                                  'Terms & Conditions', LegalText.terms),
                             style:  TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
@@ -302,6 +329,9 @@ class _OtpScreenState extends State<OtpScreen> {
                           ),
                           TextSpan(
                             text: "Privacy Policy",
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () => showLegalSheet(
+                                  context, 'Privacy Policy', LegalText.privacy),
                             style:  TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w500,

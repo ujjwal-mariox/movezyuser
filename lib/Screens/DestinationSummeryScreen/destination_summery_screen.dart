@@ -27,16 +27,22 @@ class _DestinationSummeryScreenState extends State<DestinationSummeryScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      bottomNavigationBar: Container(
-        margin: EdgeInsets.only(bottom: 10),
-        height: 75,
-        padding: const EdgeInsets.symmetric(horizontal: 20,vertical: 12),
-        child: ButtonWidget(
-          backgroundColor: HexColor("#A2BF49"),
-          height: 50,
-          text: "Book Return",onTap: (){
-          pushTo(context, TipScreen());
-        },
+      // A raw Container as bottomNavigationBar gets no system inset from
+      // Scaffold, so the "Book Return" button sat underneath the Android
+      // gesture bar and could not be tapped on gesture-nav devices.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          margin: EdgeInsets.only(bottom: 10),
+          height: 75,
+          padding: const EdgeInsets.symmetric(horizontal: 20,vertical: 12),
+          child: ButtonWidget(
+            backgroundColor: HexColor("#A2BF49"),
+            height: 50,
+            text: "Book Return",onTap: (){
+            pushTo(context, TipScreen());
+          },
+          ),
         ),
       ),
       body: SingleChildScrollView(

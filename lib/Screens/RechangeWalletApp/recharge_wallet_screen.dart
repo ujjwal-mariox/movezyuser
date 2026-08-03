@@ -16,10 +16,23 @@ class WalletRechargeApp extends StatefulWidget {
 
 class _WalletRechargeAppState extends State<WalletRechargeApp> {
   int selectedAmount = 500;
-  double _balance = 0;
-  bool _loading = true;
+
+  /// Null until a fetch actually succeeds. A failed fetch used to leave this at
+  /// 0 and render "₹ 0", which is indistinguishable from an empty wallet.
+  double? _balance;
+
+  /// A wallet request is in flight — guards against stacking refreshes.
+  bool _fetching = false;
+
+  /// The last wallet request failed.
+  bool _loadFailed = false;
+
   bool _paying = false;
   List<WalletTransaction> _transactions = [];
+
+  /// Whether this screen is the shown child of the dashboard's IndexedStack.
+  /// See [didChangeDependencies].
+  bool _visible = false;
 
   late Razorpay _razorpay;
   double _pendingAmount = 0;
@@ -39,7 +52,31 @@ class _WalletRechargeAppState extends State<WalletRechargeApp> {
   void initState() {
     super.initState();
     _initRazorpay();
-    _loadWallet();
+    // The balance load is driven by didChangeDependencies, not initState — see
+    // the note there.
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // This screen is one of the dashboard's IndexedStack children, so it is
+    // built once and then stays mounted: initState ran a single time per app
+    // launch and the balance went stale the moment money moved on any other
+    // surface. IndexedStack wraps each child in a Visibility, and
+    // Visibility.of() both reports whether this subtree is the shown one and
+    // registers a dependency on it — so this runs again every time the Wallet
+    // tab is opened. Where there is no Visibility ancestor (the screen is also
+    // pushed as a route from Home/FAQ/Notification settings) it reports true,
+    // which gives a pushed instance its initial load.
+    final visible = Visibility.of(context);
+    if (visible && !_visible) {
+      // Run it after this frame so the in-flight setState never lands in the
+      // middle of a build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadWallet();
+      });
+    }
+    _visible = visible;
   }
 
   void _initRazorpay() {
@@ -62,17 +99,26 @@ class _WalletRechargeAppState extends State<WalletRechargeApp> {
   }
 
   Future<void> _loadWallet() async {
+    if (_fetching) return;
+    setState(() {
+      _fetching = true;
+      _loadFailed = false;
+    });
     try {
       final data = await WalletService.getWallet();
-      if (mounted) {
-        setState(() {
-          _balance = data.balance;
-          _transactions = data.transactions;
-          _loading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() {
+        _balance = data.balance;
+        _transactions = data.transactions;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      // _balance is deliberately left alone: a previously loaded figure is
+      // still the last thing the server told us, and null keeps the
+      // "couldn't load" state up instead of inventing a zero.
+      setState(() => _loadFailed = true);
+    } finally {
+      if (mounted) setState(() => _fetching = false);
     }
   }
 
@@ -122,7 +168,7 @@ class _WalletRechargeAppState extends State<WalletRechargeApp> {
     } catch (e) {
       _showSnack('Verification error: $e');
     }
-    setState(() => _paying = false);
+    if (mounted) setState(() => _paying = false);
   }
 
   void _handlePaymentError(PaymentFailureResponse response) {
@@ -185,11 +231,7 @@ class _WalletRechargeAppState extends State<WalletRechargeApp> {
                           style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w400)
                       ),
                       SizedBox(height: 5),
-                      Text(_loading ? "..." : "₹ ${_balance.toInt()}",
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 26,
-                              fontWeight: FontWeight.bold)),
+                      _balanceLine(),
                     ],
                   ),
                 ),
@@ -398,6 +440,61 @@ class _WalletRechargeAppState extends State<WalletRechargeApp> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// The balance figure. A fetch that never landed says so and offers a retry
+  /// rather than rendering a real-looking ₹ 0.
+  Widget _balanceLine() {
+    final balance = _balance;
+
+    if (balance == null) {
+      if (_loadFailed) {
+        return Column(
+          children: [
+            const Text("Balance unavailable",
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600)),
+            _retryButton(),
+          ],
+        );
+      }
+      // Nothing loaded yet and nothing has failed — a fetch is in flight or is
+      // about to be.
+      return const SizedBox(
+        height: 26,
+        width: 26,
+        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+      );
+    }
+
+    return Column(
+      children: [
+        Text("₹ ${balance.toInt()}",
+            style: const TextStyle(
+                color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
+        if (_loadFailed) ...[
+          const Text("Couldn't refresh — this is the last known balance",
+              style: TextStyle(color: Colors.white70, fontSize: 11)),
+          _retryButton(),
+        ],
+      ],
+    );
+  }
+
+  Widget _retryButton() {
+    return TextButton.icon(
+      onPressed: _fetching ? null : _loadWallet,
+      icon: const Icon(Icons.refresh, size: 16, color: Colors.white),
+      label: const Text("Retry",
+          style: TextStyle(color: Colors.white, fontSize: 13)),
+      style: TextButton.styleFrom(
+        minimumSize: const Size(0, 32),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }
