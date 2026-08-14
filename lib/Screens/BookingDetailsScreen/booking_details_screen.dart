@@ -216,19 +216,26 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
                         children: [
                           Row(
                             children: [
-                              Text("ID #$bookingNumber", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                              // Headline sizes from the design — these were 14/13,
+                              // which read as secondary text next to the address
+                              // block rather than as the card's title.
+                              Text("ID #$bookingNumber", style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
                               const Spacer(),
                               Text(
                                 _statusLabel(status),
-                                style: TextStyle(color: _statusColor(status), fontSize: 13, fontWeight: FontWeight.bold),
+                                style: TextStyle(color: _statusColor(status), fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                             ],
                           ),
                           const SizedBox(height: 4),
                           Row(
                             children: [
-                              Text("$vehicleName  •", style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                              Text("  $driverName", style: TextStyle(fontSize: 12, color: HexColor("#5680E2"), fontWeight: FontWeight.bold)),
+                              // The bullet belongs to the driver's name in the
+                              // design and is blue like it, not grey like the
+                              // vehicle label.
+                              Text(vehicleName, style: const TextStyle(fontSize: 14, color: Colors.black54)),
+                              Text("  •  ", style: TextStyle(fontSize: 14, color: HexColor("#5680E2"), fontWeight: FontWeight.bold)),
+                              Text(driverName, style: TextStyle(fontSize: 14, color: HexColor("#5680E2"), fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ],
@@ -399,7 +406,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 5),
-          const Text("Ride Summary", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const Text("Ride Summary", style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.all(16),
@@ -445,17 +452,21 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          title,
-          style: GoogleFonts.poppins(
-            fontSize: 12,
-            fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
+        // 12pt was well below the design, which sets the receipt at body size.
+        Expanded(
+          child: Text(
+            title,
+            style: GoogleFonts.poppins(
+              fontSize: 14.5,
+              fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
+            ),
           ),
         ),
+        const SizedBox(width: 8),
         Text(
           amount,
           style: GoogleFonts.poppins(
-            fontSize: 12,
+            fontSize: 14.5,
             fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
           ),
         )

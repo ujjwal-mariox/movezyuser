@@ -13,7 +13,6 @@ import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
 import 'package:movezy_user_app/CommonWidgets/booking_terms_sheet.dart';
 import 'package:movezy_user_app/CommonWidgets/order_status_timeline.dart';
 import 'package:movezy_user_app/Screens/BookingDetailsScreen/booking_details_screen.dart';
-import 'package:movezy_user_app/Screens/CancelRideScreen/cancel_ride_screen.dart';
 import 'package:movezy_user_app/Screens/ChatScreen/chat_screen.dart';
 import 'package:movezy_user_app/Screens/HelpSupportScreen/help_support_screen.dart';
 import 'package:movezy_user_app/Screens/MapPickerScreen/map_picker_screen.dart';
@@ -32,13 +31,10 @@ class TripDetailsScreen extends StatefulWidget {
 }
 
 class _TripDetailsScreenState extends State<TripDetailsScreen> {
-  bool showCancelDialog = false;
   bool _loading = true;
-  bool _cancelling = false;
   // True while the add-stop request is in flight, so the row can't be tapped
   // twice — a duplicate stop would be re-priced and charged for.
   bool _addingStop = false;
-  String? _cancelReasonId;
   Timer? _pollTimer;
 
   // Booking data from API
@@ -54,18 +50,6 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
   // customer who booked a truck watched a bike come to collect it.
   String _vehicleImage = '';
 
-  /// Headline for the cancel-confirmation sheet.
-  ///
-  /// Driven purely by booking status. It used to say "Your driver is N mins
-  /// away" / "almost there" off the header's minutes figure — but that is the
-  /// whole-trip duration (see _tripDurationMin), never a distance-to-pickup
-  /// estimate, so both lines stated a number the server had not calculated.
-  /// There is no driver-arrival estimate in the payload, so we claim none.
-  String _cancelDialogHeadline() {
-    if (_status == 'DRIVER_ARRIVED') return 'Your driver has arrived.';
-    if (_status == 'ASSIGNED') return 'A driver is already on the way.';
-    return 'Cancel this delivery?';
-  }
   String _vehicleNumber = '';
   /// Road geometry pickup → drop for the mini map; empty until fetched.
   List<LatLng> _roadRoute = const [];
@@ -693,12 +677,12 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
     if (mounted && points.length > 2) setState(() => _roadRoute = points);
   }
 
-  /// Headline above the timeline.
+  /// Headline in the ETA card.
   ///
-  /// Delegates to the timeline's own status→words table so the two cannot
-  /// disagree. They did: this used to say "Driver has arrived at pickup point"
-  /// for DRIVER_ARRIVED while the step keyed to that status, drawn directly
-  /// below, read "On the way to pickup".
+  /// Still reads OrderStatusTimeline's status→words table even though this
+  /// screen no longer draws the stepper (the design has none): BookingDetails
+  /// does draw it, and when this screen kept its own copy of the wording the
+  /// two once described DRIVER_ARRIVED with contradicting sentences.
   String get _statusLabel => OrderStatusTimeline.labelFor(_status);
 
   String get _paymentLabel {
@@ -713,9 +697,6 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
         return 'Cash';
     }
   }
-
-  bool get _canCancel =>
-      ['SEARCHING', 'ASSIGNED', 'DRIVER_ARRIVED'].contains(_status);
 
   /// A real driver is on the job. While SEARCHING the payload has no driver and
   /// the name falls back to the literal "Driver", which is nobody to chat or
@@ -903,36 +884,6 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
       }
     } finally {
       if (mounted) setState(() => _addingStop = false);
-    }
-  }
-
-  Future<void> _performCancel() async {
-    if (_cancelling) return;
-    setState(() => _cancelling = true);
-    try {
-      final result = await BookingService.cancelBooking(widget.bookingId,
-          cancellationReasonId: _cancelReasonId);
-      _pollTimer?.cancel();
-      if (mounted) {
-        replaceRoute(
-          context,
-          RideCanceledSuccessScreen(
-            cancelResult: (result['data'] ?? result) as Map<String, dynamic>?,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _cancelling = false;
-          showCancelDialog = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Cancel failed: $e'),
-              backgroundColor: Colors.red),
-        );
-      }
     }
   }
 
@@ -1278,12 +1229,6 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
 
                 const SizedBox(height: 10),
 
-                // ── Order Status Timeline ──
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: OrderStatusTimeline(currentStatus: _status),
-                ),
-
                 // ── Delay Communication Banner ──
                 _buildDelayBanner(),
 
@@ -1410,7 +1355,10 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
                             if (_hasDriver) ...[
                               const SizedBox(width: 8),
                               _driverActionButton(
-                                icon: Icons.chat_bubble_outline,
+                                // Drew a generic Icons.chat_bubble_outline
+                                // while the design's own chat-bubble export sat
+                                // unused in assets/.
+                                asset: "assets/message_icon.png",
                                 label: 'Chat with driver',
                                 onTap: () => pushTo(
                                   context,
@@ -1425,7 +1373,9 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
                               if (_driverPhone.isNotEmpty) ...[
                                 const SizedBox(width: 12),
                                 _driverActionButton(
-                                  icon: Icons.call_outlined,
+                                  // Same as chat: a generic Icons.call_outlined
+                                  // stood in for the design's handset export.
+                                  asset: "assets/call_icon.png",
                                   label: 'Call driver',
                                   onTap: _callDriver,
                                 ),
@@ -1597,134 +1547,6 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
               ],
             ),
           ),
-
-          // ── Cancel confirmation dialog overlay ──
-          if (showCancelDialog)
-            Container(
-              width: MediaQuery.of(context).size.width,
-              height: MediaQuery.of(context).size.height,
-              decoration: BoxDecoration(
-                  color: HexColor("#414141").withOpacity(0.8)),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20)),
-                    padding: const EdgeInsets.all(15),
-                    child: Column(
-                      children: [
-                        Container(
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                                color: HexColor("#EE3E35")),
-                            borderRadius:
-                                BorderRadius.circular(100),
-                          ),
-                          height: 55,
-                          width: 55,
-                          child: Icon(Icons.close_outlined,
-                              size: 35,
-                              color: HexColor("#EE3E35")),
-                        ),
-                        const SizedBox(height: 20),
-                        // Only claim the driver is close when they actually
-                        // are. This was hardcoded, so it told every customer
-                        // "Driver is almost there" to talk them out of
-                        // cancelling — including when no driver was assigned
-                        // yet, or one was half an hour away.
-                        Text(
-                            _cancelDialogHeadline(),
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                color: Colors.black,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 7),
-                        const Text(
-                          "Are you sure you still want to cancel\nyour Movezy delivery?",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: Colors.black,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w400),
-                        ),
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          width: 280,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: InkWell(
-                                  onTap: () => setState(
-                                      () => showCancelDialog = false),
-                                  child: Container(
-                                    height: 45,
-                                    decoration: BoxDecoration(
-                                      border: Border.all(
-                                          color:
-                                              HexColor("#079837")),
-                                      borderRadius:
-                                          BorderRadius.circular(10),
-                                    ),
-                                    child: Center(
-                                        child: Text("No, Continue",
-                                            style: TextStyle(
-                                                color: HexColor(
-                                                    "#079837"),
-                                                fontWeight:
-                                                    FontWeight.w500,
-                                                fontSize: 12))),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: InkWell(
-                                  onTap: _cancelling
-                                      ? null
-                                      : _performCancel,
-                                  child: Container(
-                                    padding: const EdgeInsets.only(
-                                        left: 8, right: 8),
-                                    height: 45,
-                                    decoration: BoxDecoration(
-                                      color: HexColor("#EE3E35"),
-                                      borderRadius:
-                                          BorderRadius.circular(10),
-                                    ),
-                                    child: Center(
-                                      child: _cancelling
-                                          ? const SizedBox(
-                                              width: 18,
-                                              height: 18,
-                                              child:
-                                                  CircularProgressIndicator(
-                                                      color:
-                                                          Colors.white,
-                                                      strokeWidth: 2))
-                                          : const Text(
-                                              "Yes, Cancel Ride",
-                                              style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight:
-                                                      FontWeight.w500,
-                                                  fontSize: 12)),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 13),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
         ],
       ),
     );
@@ -1832,7 +1654,7 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
 
   /// Circular peach contact button on the driver card (chat / call).
   Widget _driverActionButton({
-    required IconData icon,
+    required String asset,
     required String label,
     required VoidCallback onTap,
   }) {
@@ -1847,11 +1669,14 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
           width: 52,
           height: 52,
           alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: HexColor("#FDEBDD"),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: AppColors.appColor, size: 24),
+          // The exports carry their own peach fill (#FF6200 at 10% alpha), so
+          // the flat HexColor("#FDEBDD") fill that used to sit behind the glyph
+          // would now show through and double the tint — hence no colour here.
+          // Their fill is a rounded square; the clip trims it to the circle the
+          // design draws.
+          clipBehavior: Clip.antiAlias,
+          decoration: const BoxDecoration(shape: BoxShape.circle),
+          child: Image.asset(asset, width: 52, height: 52, fit: BoxFit.cover),
         ),
       ),
     );
@@ -1952,8 +1777,9 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
               ],
               Expanded(
                 child: _tripAction(
-                  leading: Icon(Icons.list_alt_outlined,
-                      size: 20, color: AppColors.appColor),
+                  // Was a generic Icons.list_alt_outlined; the design draws the
+                  // hamburger that ships as assets/hembers.png and went unused.
+                  leading: Image.asset("assets/hembers.png", width: 20),
                   label: "View Details",
                   onTap: () => pushTo(
                     context,
@@ -2095,7 +1921,10 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
     );
   }
 
-  /// Support card + standalone Cancel Booking button, as designed.
+  /// Support card. Deliberately no Cancel Booking button even though the mock
+  /// still draws one — removed on explicit instruction. Cancelling stays
+  /// reachable from BookingHistory's Cancel action and RideFindingScreen's
+  /// Cancel Booking button, both of which open CancelRideScreen.
   Widget _orderHelpSection(BuildContext context) {
     return Column(
       children: [
@@ -2127,8 +1956,10 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.headset_mic,
-                        size: 20, color: HexColor("#13B09E")),
+                    // Was a generic Icons.headset_mic hand-tinted to approximate
+                    // the design; assets/headphones.png is the real export.
+                    Image.asset("assets/headphones.png",
+                        width: 20, height: 20),
                     const SizedBox(width: 6),
                     Text(
                       "Contact Support",
@@ -2141,49 +1972,6 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
             ],
           ),
         ),
-        // Cancel is only offered while the booking can actually be cancelled;
-        // past pickup the backend rejects it, so showing the button would be
-        // a dead end.
-        if (_canCancel) ...[
-          const SizedBox(height: 14),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () async {
-                var res = await pushTo(
-                    context, CancelRideScreen(bookingId: widget.bookingId));
-                // CancelRideScreen now pops the cancel API's own payload.
-                if (res != null && mounted) {
-                  _pollTimer?.cancel();
-                  replaceRoute(
-                    context,
-                    RideCanceledSuccessScreen(
-                      cancelResult: res is Map<String, dynamic> ? res : null,
-                    ),
-                  );
-                }
-              },
-              child: Container(
-                width: double.infinity,
-                height: 58,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: HexColor("#D71D0C")),
-                ),
-                child: Text(
-                  "Cancel Booking",
-                  style: TextStyle(
-                      color: HexColor("#D71D0C"),
-                      fontSize: 16,
-                      letterSpacing: -0.41),
-                ),
-              ),
-            ),
-          ),
-        ],
         const SizedBox(height: 12),
         // Terms stay reachable as a quiet link rather than a list row.
         InkWell(

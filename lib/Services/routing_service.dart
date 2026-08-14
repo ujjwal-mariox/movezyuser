@@ -17,6 +17,9 @@ class RoutingService {
   /// Short-lived in-memory memo, so panning/rebuilding a map doesn't re-fetch.
   static final Map<String, List<LatLng>> _memo = {};
 
+  /// Duration memo, keyed identically to _memo.
+  static final Map<String, int> _durationMemo = {};
+
   static String _key(LatLng a, LatLng b) =>
       '${a.latitude.toStringAsFixed(4)},${a.longitude.toStringAsFixed(4)}'
       ':${b.latitude.toStringAsFixed(4)},${b.longitude.toStringAsFixed(4)}';
@@ -47,6 +50,11 @@ class RoutingService {
                   ))
               .toList();
           _memo[key] = points;
+          // The endpoint also returns the router's own duration estimate. It
+          // was being discarded, which is why the tracking screen had no real
+          // driver ETA to show and fell back to the whole-trip duration.
+          final mins = body?['data']?['route']?['durationMin'];
+          if (mins is num && mins > 0) _durationMemo[key] = mins.round();
           return points;
         }
       }
@@ -55,5 +63,18 @@ class RoutingService {
     }
 
     return [from, to];
+  }
+
+  /// Routed travel time in minutes from [from] to [to], or null when routing is
+  /// unavailable. Fetches the route if it is not already memoised, so callers do
+  /// not have to call [route] first.
+  ///
+  /// Null rather than a guess on purpose: an invented ETA on a live-tracking
+  /// screen is indistinguishable from a real one.
+  static Future<int?> durationMinutes(LatLng from, LatLng to) async {
+    final key = _key(from, to);
+    if (_durationMemo.containsKey(key)) return _durationMemo[key];
+    await route(from, to);
+    return _durationMemo[key];
   }
 }

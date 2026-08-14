@@ -143,6 +143,14 @@ class VehicleOption {
   final bool isRecommended;
   final double score;
 
+  /// Strikethrough pricing from the server's admin-managed discount campaigns.
+  /// Null when no discount applies; the ORIGINAL price stays in estimatedFare,
+  /// so a build that predates these fields simply shows the undiscounted fare
+  /// and the bill (which applies the same discount server-side) comes in
+  /// lower, never higher.
+  final double? discountedFare;
+  final double? discountPercent;
+
   VehicleOption({
     required this.vehicleTypeId,
     required this.name,
@@ -162,6 +170,8 @@ class VehicleOption {
     this.sortOrder = 0,
     this.isRecommended = false,
     this.score = 0,
+    this.discountedFare,
+    this.discountPercent,
   });
 
   factory VehicleOption.fromJson(Map<String, dynamic> json) {
@@ -185,6 +195,8 @@ class VehicleOption {
       sortOrder: vt['sortOrder'] ?? 0,
       isRecommended: json['isRecommended'] ?? false,
       score: (json['score'] ?? 0).toDouble(),
+      discountedFare: (json['discountedFare'] as num?)?.toDouble(),
+      discountPercent: (json['discountPercent'] as num?)?.toDouble(),
     );
   }
 

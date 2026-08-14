@@ -109,7 +109,7 @@ class _CoinsScreenState extends State<CoinsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
 
-                  SizedBox(height: 20,),
+                  SizedBox(height: 10,),
 
                   Stack(
                     children: [
@@ -120,7 +120,7 @@ class _CoinsScreenState extends State<CoinsScreen> {
                       ),
 
                       Container(
-                        height: 150,
+                        height: 128,
                         width: MediaQuery.of(context).size.width - 30,
                         padding: const EdgeInsets.only(left: 14, right: 14),
                         child: Row(
@@ -169,8 +169,8 @@ class _CoinsScreenState extends State<CoinsScreen> {
                             ),
                             Image.asset(
                               'assets/coins.png',
-                              height: 100,
-                              fit: BoxFit.cover,
+                              height: 84,
+                              fit: BoxFit.contain,
                             )
                           ],
                         ),
@@ -178,7 +178,7 @@ class _CoinsScreenState extends State<CoinsScreen> {
                     ],
                   ),
 
-                  SizedBox(height: 6,),
+                  SizedBox(height: 10,),
 
                   const Text('Use Coins', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
@@ -191,7 +191,7 @@ class _CoinsScreenState extends State<CoinsScreen> {
                     ],
                   ),
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                   const Text('More about Coins', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
 
@@ -203,7 +203,7 @@ class _CoinsScreenState extends State<CoinsScreen> {
                     ],
                   ),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 18),
 
                   const Center(
                     child: Text(
@@ -233,7 +233,7 @@ class _CoinsScreenState extends State<CoinsScreen> {
               ),
             ),
 
-            SizedBox(height: 100,)
+            SizedBox(height: 24,)
           ],
         ),
       ),

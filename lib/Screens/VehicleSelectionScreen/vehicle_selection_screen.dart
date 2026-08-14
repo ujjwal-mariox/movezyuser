@@ -81,9 +81,20 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
         setState(() {
           _options = options;
           _isLoading = false;
-          // Auto-select the recommended one
-          final recIdx = options.indexWhere((o) => o.isRecommended);
-          if (recIdx >= 0) _selectedIndex = recIdx;
+          // Preselect what the customer already chose (a home-screen tile),
+          // falling back to the recommended one. This screen now ALWAYS shows
+          // — the flow used to skip it entirely when a vehicle was preset, so
+          // the customer never saw the other options or their prices.
+          final priorId = widget.bookingData.selectedVehicle?.id;
+          final priorIdx = priorId == null
+              ? -1
+              : options.indexWhere((o) => o.vehicleTypeId == priorId);
+          if (priorIdx >= 0) {
+            _selectedIndex = priorIdx;
+          } else {
+            final recIdx = options.indexWhere((o) => o.isRecommended);
+            if (recIdx >= 0) _selectedIndex = recIdx;
+          }
         });
       }
     } catch (e) {
@@ -280,8 +291,7 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
           ),
           const SizedBox(height: 14),
           _addressRow(
-            icon: Icons.my_location,
-            iconColor: const Color(0xFF12B39A),
+            asset: 'assets/pic_up_location.png',
             text: widget.bookingData.pickupAddress ?? 'Pickup location',
             trailing: Icon(Icons.gps_fixed,
                 size: 20, color: AppColors.appColor),
@@ -297,8 +307,7 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
             _dashedConnector(),
           ],
           _addressRow(
-            icon: Icons.place_outlined,
-            iconColor: const Color(0xFF12B39A),
+            asset: 'assets/drop_up_location.png',
             text: widget.bookingData.dropAddress ?? 'Drop location',
           ),
           const SizedBox(height: 12),
@@ -326,8 +335,11 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
   }
 
   Widget _addressRow({
-    required IconData icon,
-    required Color iconColor,
+    IconData? icon,
+    Color? iconColor,
+    // The design's location pair renders from assets; Material glyphs remain
+    // for intermediate stops, which have no dedicated artwork.
+    String? asset,
     required String text,
     Widget? trailing,
   }) {
@@ -342,7 +354,12 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: iconColor, size: 22),
+            child: asset != null
+                ? Padding(
+                    padding: const EdgeInsets.all(11),
+                    child: Image.asset(asset, width: 22, height: 22),
+                  )
+                : Icon(icon, color: iconColor, size: 22),
           ),
           const SizedBox(width: 10),
           // Expanded so a long address ellipsizes instead of overflowing the
@@ -503,11 +520,39 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
             ),
 
             const SizedBox(width: 8),
-            // Price only — the design puts the ETA in the subtitle, not here.
-            Text(
-              "₹ ${hasEstimatedFare ? option.estimatedFare.toInt() : option.baseFare.toInt()}",
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
+            // Price — with the original struck through when an admin discount
+            // applies. Both figures come from the server; the discounted one
+            // is what createBooking will actually charge, so this is never a
+            // displayed-only price.
+            if (option.discountedFare != null &&
+                option.discountedFare! < option.estimatedFare)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "₹ ${option.estimatedFare.toInt()}",
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: Colors.grey.shade500,
+                      decoration: TextDecoration.lineThrough,
+                    ),
+                  ),
+                  Text(
+                    "₹ ${option.discountedFare!.toInt()}",
+                    style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF16A34A)),
+                  ),
+                ],
+              )
+            else
+              Text(
+                "₹ ${hasEstimatedFare ? option.estimatedFare.toInt() : option.baseFare.toInt()}",
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
           ],
         ),
       ),

@@ -46,7 +46,13 @@ class ButtonWidget extends StatelessWidget {
         margin: margin ?? const EdgeInsets.all(0),
         height: height ?? 50,
         decoration: BoxDecoration(
-            color: backgroundColor ?? AppColors.greenColor,
+            // Brand orange, not the olive #A2BF49 this defaulted to. That green
+            // was a template leftover — nothing in the app ever selected it
+            // deliberately (it appeared only here and in its own declaration),
+            // yet it painted every primary button that did not pass a colour:
+            // Save & Continue on both address screens, Booking Confirmation,
+            // Payment Success, UPI Checkout, Profile Edit and FAQ.
+            color: backgroundColor ?? AppColors.appColor,
             borderRadius: borderRadius ?? BorderRadius.circular(20),
             border: border
         ),

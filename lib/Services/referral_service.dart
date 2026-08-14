@@ -5,6 +5,11 @@ import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 
 class ReferralData {
   final String referralCode;
+
+  /// The shareable download link with the code appended, built server-side from
+  /// the admin-configured store URL. Empty when the admin hasn't set one — the
+  /// share sheet then goes out with the code alone rather than a dead link.
+  final String referralLink;
   final int referralCount;
   final double totalEarnings;
   final double referrerRewardAmount;
@@ -13,6 +18,7 @@ class ReferralData {
 
   ReferralData({
     required this.referralCode,
+    this.referralLink = '',
     required this.referralCount,
     required this.totalEarnings,
     required this.referrerRewardAmount,
@@ -26,6 +32,7 @@ class ReferralData {
         .toList();
     return ReferralData(
       referralCode: json['referralCode'] ?? '',
+      referralLink: json['referralLink'] ?? '',
       referralCount: json['referralCount'] ?? 0,
       totalEarnings: (json['totalEarnings'] ?? 0).toDouble(),
       referrerRewardAmount: (json['referrerRewardAmount'] ?? 100).toDouble(),

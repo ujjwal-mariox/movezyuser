@@ -32,6 +32,13 @@ class MapPickerScreen extends StatefulWidget {
     this.initialAddress,
   });
 
+  /// Which of the standard location icons the address field shows. Derived
+  /// from the title rather than a new required parameter so the existing call
+  /// sites (pickup, drop, stops, saved-address) keep working unchanged —
+  /// anything that is not explicitly a pickup gets the drop/destination
+  /// marker, which is also right for stops.
+  bool get isPickup => title.toLowerCase().contains('pickup');
+
   @override
   State<MapPickerScreen> createState() => _MapPickerScreenState();
 }
@@ -469,7 +476,17 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      Icon(Icons.location_on, color: HexColor("#FF6200"), size: 22),
+                      // Same pair as every other address field: the pickup pin
+                      // while choosing a pickup, the drop marker while choosing
+                      // a drop. This was a one-off orange Material pin found
+                      // nowhere else in the flow.
+                      Image.asset(
+                        widget.isPickup
+                            ? "assets/pic_up_location.png"
+                            : "assets/drop_up_location.png",
+                        width: 22,
+                        height: 22,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: _isLoadingAddress

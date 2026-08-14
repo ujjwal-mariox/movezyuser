@@ -97,16 +97,22 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   bool get _dropAnswered =>
       _dropGround == true || (_dropGround == false && _dropFloor > 0);
 
-  /// Proceed stays disabled until the flow is complete, per the design's
-  /// greyed-out button in the early states.
-  bool get _serviceFlowComplete =>
-      _serviceChosen &&
+  /// What Proceed actually needs. Add-ons are OPTIONAL and must never block a
+  /// booking (client decision) — the old gate required the loading service,
+  /// floors, goods type and quantity for EVERY booking, so a customer who
+  /// wanted no help at all could not book without answering questions about a
+  /// service they weren't buying. The Load Assist answers are required only
+  /// once a loading add-on is selected, because partner count and the
+  /// per-floor charge are priced from them.
+  bool get _loadAssistComplete =>
       _pickupAnswered &&
       _dropAnswered &&
       _goodsNature != null &&
       _goodsSubType != null &&
-      (_qtySmall + _qtyLarge) > 0 &&
-      _pickupTimeAnswered;
+      (_qtySmall + _qtyLarge) > 0;
+
+  bool get _serviceFlowComplete =>
+      _pickupTimeAnswered && (!_serviceChosen || _loadAssistComplete);
 
   /// A future date means nothing without a slot: the booking is created from
   /// the slot's `scheduledAt`, so picking "Tomorrow" and leaving the slot
@@ -116,12 +122,22 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
       DateUtils.isSameDay(_selectedDate, DateTime.now()) ||
       _selectedSlot != null;
 
-  /// Add-ons that are NOT the loading services. The loading choice lives in
-  /// Select Service; listing LDUNLD/LDING/UNLD here as well let the same
-  /// service be picked twice through two different controls.
+  /// Loading services now live IN the add-on list (client decision: one place
+  /// to pick services, all optional). They stay mutually exclusive with each
+  /// other — picking one clears the other two — via the special-cased toggle in
+  /// _addonDesignCard, and selecting any of them reveals the Load Assist
+  /// section below.
   static const _loadingCodes = {'LDUNLD', 'LDING', 'UNLD'};
-  List<AddonService> get _extraAddons =>
-      _addons.where((a) => !_loadingCodes.contains(a.code)).toList();
+
+  /// Loading first, so the section leads with the service that has follow-up
+  /// questions; the extras (Packing, Insurance, Receiving Copy) follow.
+  List<AddonService> get _extraAddons {
+    final loading =
+        _addons.where((a) => _loadingCodes.contains(a.code)).toList();
+    final rest =
+        _addons.where((a) => !_loadingCodes.contains(a.code)).toList();
+    return [...loading, ...rest];
+  }
 
   // Declared load for PER_KG add-ons. Same problem the floors had: the card
   // advertised "₹25/kg" while nothing ever asked how heavy the load was, so
@@ -142,6 +158,11 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   /// fare recalculation, promo validation and payment handler below reads this
   /// screen's state, and splitting it across routes would mean migrating all of
   /// that. Back on step 1 returns to step 0 instead of leaving the flow.
+  /// 0 = the review page. 1 = the Load Assist page, opened the moment a
+  /// loading add-on is selected (client's flow: the add-on opts you into a
+  /// dedicated page with the service, floors, goods, quantity and pickup time
+  /// — the approved mock). It is a page over the same State, not a pushed
+  /// route, so every section keeps calling setState/_refreshFare directly.
   int _step = 0;
 
   // Selections
@@ -991,8 +1012,8 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: _step == 0
-                          ? _configureStep(vehicleName, baseFare)
-                          : _reviewStep(vehicleName, baseFare),
+                          ? _reviewStep(vehicleName, baseFare)
+                          : _loadAssistStep(vehicleName, baseFare),
                     ),
                   ),
                 ],
@@ -1003,28 +1024,20 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   }
 
   /// STEP 0 — configure: what service, which floors, what goods, what time.
-  List<Widget> _configureStep(String vehicleName, double baseFare) => [
-        _vehicleCard(vehicleName, _fare?.finalFare ?? baseFare),
-        const SizedBox(height: 20),
-
-        // Loading/unloading is chosen HERE and only here — it must not also
-        // appear in the add-ons list on the next step, or the same service can
-        // be picked twice through two different controls.
-        _selectServiceSection(),
-        const SizedBox(height: 16),
-
-        _buildScheduleSection(),
-        const SizedBox(height: 100),
-      ];
-
-  /// STEP 1 — review: what it costs and what is being carried.
+  /// ONE page, in the client's order: what it costs and where it goes FIRST,
+  /// then the optional add-ons, then (only if a loading add-on was picked) the
+  /// Load Assist questions, then schedule and the rest. This replaced a
+  /// two-step flow whose first screen demanded the loading service, floors,
+  /// goods and quantity before the customer had even seen the address or the
+  /// price.
   List<Widget> _reviewStep(String vehicleName, double baseFare) => [
         _vehicleCard(vehicleName, _fare?.finalFare ?? baseFare),
-        const SizedBox(height: 20),
+        const SizedBox(height: 12),
 
-        _sectionTitle('Offers and Discounts'),
-        const SizedBox(height: 9),
-        _promoSection(),
+        // Address up front, inline — it used to live only behind the "View
+        // Address Details" sheet, so the one thing every customer checks
+        // before paying needed an extra tap to see.
+        _addressCard(),
         const SizedBox(height: 20),
 
         _sectionTitle('Fare Summary'),
@@ -1032,13 +1045,25 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
         _fareSummaryCard(),
         const SizedBox(height: 20),
 
-        // Extras only (Packing, Insurance, Receiving Copy) — the loading
-        // services are filtered out; they belong to step 0.
-        // _addonDropdownSection renders its own 'Add-On Services' heading.
+        _sectionTitle('Offers and Discounts'),
+        const SizedBox(height: 9),
+        _promoSection(),
+        const SizedBox(height: 20),
+
+        // ALL add-ons, loading services included and listed first. Selecting a
+        // loading add-on reveals Load Assist directly beneath.
         if (_extraAddons.isNotEmpty) ...[
           _addonDropdownSection(),
+          const SizedBox(height: 12),
+        ],
+
+        if (_serviceChosen) ...[
+          _loadAssistSummaryCard(),
           const SizedBox(height: 20),
         ],
+
+        _buildScheduleSection(),
+        const SizedBox(height: 20),
 
         _sectionTitle('GST Details'),
         _gstCard(context),
@@ -1054,6 +1079,136 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
         _readBeforeCard(),
         const SizedBox(height: 100),
       ];
+
+  /// The Load Assist page — the approved mock: chosen service with Change,
+  /// pickup/drop floor details, type of goods, quantity, and pickup time, with
+  /// the same sticky bar (service-fare strip + Proceed) underneath. Proceed
+  /// returns to the review page with everything applied.
+  List<Widget> _loadAssistStep(String vehicleName, double baseFare) => [
+        _vehicleCard(vehicleName, _fare?.finalFare ?? baseFare),
+        const SizedBox(height: 12),
+        _loadAssistSection(),
+        const SizedBox(height: 16),
+        _buildScheduleSection(),
+        const SizedBox(height: 100),
+      ];
+
+  /// Compact recap of the Load Assist answers on the review page, with Edit
+  /// reopening the page. Without this, a customer who came back to review had
+  /// no way into the page again short of toggling the add-on off and on.
+  Widget _loadAssistSummaryCard() {
+    final packages = _qtySmall + _qtyLarge;
+    final bits = <String>[
+      if (_pickupAnswered && _dropAnswered)
+        _pickupGround == true && _dropGround == true
+            ? 'Ground floor both ends'
+            : 'Floors set',
+      if (_goodsSubType != null)
+        _goodsSubType == 'CARTON' ? 'Cartons' : 'Other goods',
+      if (packages > 0) '$packages package${packages == 1 ? '' : 's'}',
+    ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: _boxDecoration(),
+      child: Row(
+        children: [
+          Image.asset('assets/delivery_person.png', width: 26, height: 26),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_serviceLabel(_serviceCode!),
+                    style: GoogleFonts.poppins(
+                        fontSize: 13.5, fontWeight: FontWeight.w600)),
+                if (bits.isNotEmpty)
+                  Text(bits.join('  ·  '),
+                      style: GoogleFonts.poppins(
+                          fontSize: 11.5, color: Colors.grey.shade600)),
+                if (!_loadAssistComplete)
+                  Text('Details needed before booking',
+                      style: GoogleFonts.poppins(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFFE23B32))),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: () => setState(() => _step = 1),
+            child: Text('Edit',
+                style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1668E3))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Compact inline pickup/drop card. Rows, not a sheet: the client asked for
+  /// address and price to be visible before any add-on decision.
+  Widget _addressCard() {
+    final pickup = widget.bookingData.pickupAddress ?? 'Pickup Location';
+    final drop = widget.bookingData.dropAddress ?? 'Drop Location';
+    final stops = widget.bookingData.stops;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: _boxDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 3),
+                child:
+                    Icon(Icons.circle, size: 11, color: Color(0xFF25AA59)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(pickup,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(fontSize: 13, height: 1.35)),
+              ),
+            ],
+          ),
+          if (stops.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 21, top: 4),
+              child: Text(
+                '+ ${stops.length} stop${stops.length == 1 ? '' : 's'}',
+                style: GoogleFonts.poppins(
+                    fontSize: 11.5, color: Colors.grey.shade600),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Icon(Icons.location_on,
+                    size: 14, color: Color(0xFFE23B32)),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(drop,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(fontSize: 13, height: 1.35)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   /// Read-only recap of what step 0 collected, with a Change link back to the
   /// goods sheet. Weight and package count are the customer's own declared
@@ -2023,7 +2178,8 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   }
 
   Widget _svcRadioRow({
-    required IconData icon,
+    IconData? icon,
+    String? asset,
     required String label,
     required bool selected,
     required VoidCallback onTap,
@@ -2034,7 +2190,13 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(
           children: [
-            Icon(icon, color: AppColors.appColor, size: 22),
+            // The design uses illustrated icons, which ship as assets. A
+            // Material glyph is the fallback for rows that have no artwork.
+            if (asset != null)
+              Image.asset(asset, width: 26, height: 26)
+            else
+              Icon(icon ?? Icons.circle_outlined,
+                  color: AppColors.appColor, size: 22),
             const SizedBox(width: 14),
             // Expanded so long labels wrap rather than overflow the row.
             Expanded(
@@ -2073,12 +2235,18 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   }
 
   /// Collapsed "<icon> <label>   Change" header shown once a step is answered.
-  Widget _svcChosenRow(IconData icon, String label, VoidCallback onChange) {
+  Widget _svcChosenRow(IconData icon, String label, VoidCallback onChange,
+      {String? asset}) {
     return Column(
       children: [
         Row(
           children: [
-            Icon(icon, color: AppColors.appColor, size: 22),
+            // Same artwork as the unselected row, so choosing an option does
+            // not swap the design's icon for a generic glyph.
+            if (asset != null)
+              Image.asset(asset, width: 26, height: 26)
+            else
+              Icon(icon, color: AppColors.appColor, size: 22),
             const SizedBox(width: 12),
             Expanded(
               child: Text(label,
@@ -2224,10 +2392,13 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                   style: GoogleFonts.poppins(
                       fontSize: 12.5, fontWeight: FontWeight.w600)),
             ),
+            // The design's hand-truck illustration, which already shipped as an
+            // asset but was never referenced — the card drew a generic Material
+            // box glyph instead.
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Icon(Icons.inventory_2_outlined,
-                  size: 40, color: AppColors.appColor.withValues(alpha: 0.75)),
+              child: Image.asset('assets/quantity_icon.png',
+                  height: 46, fit: BoxFit.contain),
             ),
             const Divider(height: 1, color: Color(0xFFEDEDED)),
             Row(
@@ -2265,32 +2436,29 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   /// Sits on a grey backdrop so each white block reads as its own card, the way
   /// the design separates Select Service / type of goods / pickup time. Without
   /// it the blocks were white-on-white and ran together.
-  Widget _selectServiceSection() {
+  Widget _loadAssistSection() {
     return Container(
       color: const Color(0xFFF1F1F1),
       child: Column(
       children: [
         const SizedBox(height: 10),
+        // The service itself is chosen in Add-On Services now; this block only
+        // collects what that service needs to be priced and staffed — floors,
+        // goods and quantity — so it appears exactly when a loading add-on is
+        // selected and never blocks a booking without one.
         _svcBlock('Select Service', [
-          if (!_serviceChosen)
-            for (final s in _services)
-              _svcRadioRow(
-                icon: Icons.engineering_outlined,
-                label: s[1],
-                selected: _serviceCode == s[0],
-                onTap: () => setState(() {
-                  _serviceCode = s[0];
-                  _syncServiceAddon();
-                }),
-              )
-          else ...[
+          ...[
             _svcChosenRow(
               Icons.engineering_outlined,
               _serviceLabel(_serviceCode!),
               () => setState(() {
                 _serviceCode = null;
                 _syncServiceAddon();
+                // No service — nothing left to configure here; back to review
+                // where the add-on list is.
+                _step = 0;
               }),
+              asset: 'assets/delivery_person.png',
             ),
             const SizedBox(height: 14),
             Text('Pickup details',
@@ -2374,14 +2542,18 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
         const SizedBox(height: 10),
         _svcBlock('Select type of goods', [
           if (_goodsNature == null) ...[
+            // The design's illustrated icons — an orange briefcase for
+            // business, the delivery figure for personal. These were generic
+            // Material glyphs (business_center / home), which is what made the
+            // block look unlike the mock.
             _svcRadioRow(
-              icon: Icons.business_center_outlined,
+              asset: 'assets/business_icon.png',
               label: 'Business or Commercial goods',
               selected: false,
               onTap: () => setState(() => _goodsNature = 'BUSINESS'),
             ),
             _svcRadioRow(
-              icon: Icons.home_outlined,
+              asset: 'assets/delivery_person.png',
               label: 'Personal or Household goods',
               selected: false,
               onTap: () => setState(() => _goodsNature = 'PERSONAL'),
@@ -2407,6 +2579,9 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                         _goodsNature = null;
                         _goodsSubType = null;
                       }),
+              asset: _goodsNature == 'BUSINESS'
+                  ? 'assets/business_icon.png'
+                  : 'assets/delivery_person.png',
             ),
             const SizedBox(height: 6),
             if (_goodsSubType == null) ...[
@@ -2520,7 +2695,11 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
         ),
         child: Row(
           children: [
-            const Text('📦', style: TextStyle(fontSize: 16)),
+            // The design's restricted-items artwork — a parcel with a red X —
+            // ships as an asset. This drew a bare 📦 emoji, which renders in
+            // whatever the device's emoji font is and carries none of the
+            // "not allowed" meaning the strip is warning about.
+            Image.asset('assets/not_available.png', width: 18, height: 18),
             const SizedBox(width: 8),
             Expanded(
               child: Text('Do not send restricted items',
@@ -2694,8 +2873,11 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
-          Icon(Icons.local_shipping_outlined,
-              color: AppColors.appColor, size: 28),
+          // The design's own artwork for this strip, and the exact asset the
+          // Select Service screen already draws beside its identical
+          // "Service fare … / N Partner to load & unload" copy. A generic
+          // Material shipping glyph stood in for it here.
+          Image.asset('assets/service_fare_icon.png', height: 40),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -2764,6 +2946,55 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
     );
   }
 
+  /// Artwork for an add-on row.
+  ///
+  /// The card used to render `addon.icon` as raw TEXT, so it could only ever
+  /// show an emoji — and the backend stores emoji ("🧾", "🧑‍🏭") or, for
+  /// Loading/Unloading only, an empty string. The design shows illustrated
+  /// icons, which already ship in assets/, so a code-keyed local fallback
+  /// supplies them. A real image URL from the backend still wins, so uploading
+  /// proper artwork through the admin panel takes over without a code change.
+  Widget _addonIcon(AddonService addon) {
+    final icon = addon.icon;
+
+    if (icon.startsWith('http')) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Image.network(
+          ApiUrls.imageProxyUrl(icon),
+          width: 40,
+          height: 40,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => _addonAssetIcon(addon),
+        ),
+      );
+    }
+    if (icon.startsWith('assets/')) {
+      return Image.asset(icon, width: 40, height: 40, fit: BoxFit.contain);
+    }
+    return _addonAssetIcon(addon);
+  }
+
+  /// The design's illustration for a known add-on, keyed by the addon CODE
+  /// rather than its name — an admin can rename "Loading & unloading" without
+  /// silently losing its icon. Anything unrecognised keeps the backend's emoji,
+  /// and only falls back to a clipboard when there is nothing at all.
+  Widget _addonAssetIcon(AddonService addon) {
+    const byCode = <String, String>{
+      'LDUNLD': 'assets/delivery_man.png',
+      'LDING': 'assets/delivery_man.png',
+      'UNLD': 'assets/delivery_man.png',
+      'RECVCOPY': 'assets/copy.png',
+      'PACKING': 'assets/boxes.png',
+    };
+    final asset = byCode[addon.code.toUpperCase()];
+    if (asset != null) {
+      return Image.asset(asset, width: 40, height: 40, fit: BoxFit.contain);
+    }
+    return Text(addon.icon.isNotEmpty ? addon.icon : '📋',
+        style: const TextStyle(fontSize: 26));
+  }
+
   Widget _addonDesignCard(AddonService addon) {
     final selected = _selectedAddonIds.contains(addon.id);
     final priceLabel = addon.priceType == 'PERCENTAGE'
@@ -2794,10 +3025,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
               color: const Color(0xFFF6F6F6),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Center(
-              child: Text(addon.icon.isNotEmpty ? addon.icon : '📋',
-                  style: const TextStyle(fontSize: 26)),
-            ),
+            child: Center(child: _addonIcon(addon)),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -2828,7 +3056,16 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
           GestureDetector(
             onTap: () {
               setState(() {
-                if (selected) {
+                if (_loadingCodes.contains(addon.code)) {
+                  // The three loading services are one choice, not a stack:
+                  // route through _serviceCode + _syncServiceAddon so exactly
+                  // one is ever selected. Opting IN opens the Load Assist
+                  // page (the approved mock) to collect what the service
+                  // needs; opting out just clears it.
+                  _serviceCode = selected ? null : addon.code;
+                  _syncServiceAddon();
+                  if (_serviceCode != null) _step = 1;
+                } else if (selected) {
                   _selectedAddonIds.remove(addon.id);
                 } else {
                   _selectedAddonIds.add(addon.id);
@@ -2933,10 +3170,14 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                   onTap: _showPaymentMethodSheet,
                   child: Row(
                     children: [
-                      Icon(
-                        _paymentMethod == 'CASH' ? Icons.money : _paymentMethod == 'WALLET' ? Icons.account_balance_wallet : Icons.credit_card,
-                        color: AppColors.appColor, size: 22,
-                      ),
+                      // The design puts one wallet illustration beside "Choose
+                      // Payment Method" whatever the method is — the method
+                      // itself is named in the label directly below — and
+                      // ships it as an asset (the Select Service screen draws
+                      // the same one under the same copy). This picked between
+                      // three generic Material glyphs instead.
+                      Image.asset('assets/credit_card.png',
+                          width: 30, height: 30),
                       const SizedBox(width: 8),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2996,11 +3237,15 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                 // have all been filled in.
                 // Step 0's Proceed advances to the review page; only step 1
                 // actually creates the booking and takes payment.
+                // On the Load Assist page, Proceed validates and returns to
+                // review (the same _serviceFlowComplete gate covers it: with a
+                // service chosen it requires the Load Assist answers + pickup
+                // time). Only the review page's Proceed actually books.
                 onPressed:
                     (_bookingInProgress || _fare == null || !_serviceFlowComplete)
                         ? null
-                        : (_step == 0
-                            ? () => setState(() => _step = 1)
+                        : (_step == 1
+                            ? () => setState(() => _step = 0)
                             : _onBookPressed),
                 child: _bookingInProgress
                     ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))

@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
+import 'package:movezy_user_app/CommonWidgets/cancel_booking_dialog.dart';
 import 'package:movezy_user_app/Screens/BookingDetailsScreen/booking_details_screen.dart';
 import 'package:movezy_user_app/Screens/CancelRideScreen/cancel_ride_screen.dart';
 import 'package:movezy_user_app/Screens/TripDetailsScreen/trip_details_screen.dart';
@@ -747,7 +748,15 @@ class _BookingHistoryState extends State<BookingHistory> {
           const SizedBox(width: 10),
           Expanded(
             child: _actionButton(
-                'Cancel', HexColor("#EE3E35"), Icons.close, () {
+                'Cancel', HexColor("#EE3E35"), Icons.close, () async {
+              // Stage-aware confirmation gate — Cancel used to drop straight
+              // into the reason screen with no "are you sure".
+              final confirmed = await showCancelBookingConfirmDialog(
+                context,
+                bookingStatus: booking.status,
+                bookingId: booking.id,
+              );
+              if (!confirmed || !mounted) return;
               Navigator.push(
                 context,
                 MaterialPageRoute(

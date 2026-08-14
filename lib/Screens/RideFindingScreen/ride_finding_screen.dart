@@ -4,6 +4,7 @@ import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
 import 'package:movezy_user_app/CommonWidgets/button_widget.dart';
+import 'package:movezy_user_app/CommonWidgets/cancel_booking_dialog.dart';
 import 'package:movezy_user_app/Screens/CancelRideScreen/cancel_ride_screen.dart';
 import 'package:movezy_user_app/Screens/TripDetailsScreen/trip_details_screen.dart';
 import 'package:movezy_user_app/Screens/DashboardScreen/dashboard_screen.dart';
@@ -34,6 +35,11 @@ class _RideFindingScreenState extends State<RideFindingScreen>
   Timer? _pollTimer;
   bool _cancelled = false;
   String _statusText = 'Finding nearby drivers...';
+
+  /// Status from the last /track poll. The cancel dialog's stage copy must
+  /// state the stage we actually observed — '' before the first poll lands
+  /// maps to the dialog's generic headline rather than an assumed stage.
+  String _lastKnownStatus = '';
   late AnimationController _pulseController;
 
   // The real pickup, read off the booking we're already polling. This screen
@@ -186,7 +192,8 @@ class _RideFindingScreenState extends State<RideFindingScreen>
         if (parsed != null) _bookingCreatedAt = parsed.toLocal();
       }
 
-      final status = booking['status'] ?? '';
+      final status = (booking['status'] ?? '').toString();
+      _lastKnownStatus = status;
 
       if (status == 'CANCELLED') {
         _cancelled = true;
@@ -218,11 +225,22 @@ class _RideFindingScreenState extends State<RideFindingScreen>
   }
 
   Future<void> _cancelBooking() async {
-    // Pause polling while the cancel screen is up. Otherwise a poll landing
-    // between the cancel API succeeding and this screen regaining control sees
-    // CANCELLED and pushAndRemoveUntil's the dashboard over everything,
-    // throwing away the refund confirmation the customer is owed.
+    // Pause polling while the confirm dialog / cancel screen is up. Otherwise
+    // a poll landing mid-flow sees CANCELLED (or ASSIGNED) and
+    // pushAndRemoveUntil's another screen over everything — tearing down the
+    // dialog and throwing away the refund confirmation the customer is owed.
     _pollTimer?.cancel();
+
+    final confirmed = await showCancelBookingConfirmDialog(
+      context,
+      bookingStatus: _lastKnownStatus,
+      bookingId: widget.bookingId,
+    );
+    if (!mounted) return;
+    if (!confirmed) {
+      _startPolling(); // Changed their mind — carry on searching.
+      return;
+    }
 
     final result =
         await pushTo(context, CancelRideScreen(bookingId: widget.bookingId));

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:hexcolor/hexcolor.dart' show HexColor;
 import 'package:http/http.dart' as http;
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
+import 'package:movezy_user_app/Screens/HelpSupportScreen/support_chat_screen.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
 import 'package:movezy_user_app/Screens/HelpSupportScreen/support_tickets_screen.dart';
@@ -37,6 +38,26 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
   String _supportPhone = '';
 
   String? _selectedCategory;
+
+  /// Scroll anchors. Tapping a category expanded the FAQ list BELOW the fold —
+  /// the screen stayed where it was, so nothing visibly happened. ensureVisible
+  /// brings the expanded section into view; the categories key brings the
+  /// customer back up when they clear the selection.
+  final GlobalKey _categoriesKey = GlobalKey();
+  final GlobalKey _faqSectionKey = GlobalKey();
+  final GlobalKey _answerKey = GlobalKey();
+
+  void _revealSection(GlobalKey key) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = key.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx,
+            duration: const Duration(milliseconds: 320),
+            curve: Curves.easeOut,
+            alignment: 0.08);
+      }
+    });
+  }
   String? _selectedQuestion;
 
   /// The confirmation currently shown in place of the "Was this helpful?"
@@ -297,6 +318,10 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
             const SizedBox(height: 5),
 
+            // ─── CHAT WITH US (bot first, live agent behind it) ───
+            _buildChatEntryCard(),
+            const SizedBox(height: 16),
+
             // ─── CALL SUPPORT ───
             // Only rendered when the admin has configured a number.
             if (_supportPhone.isNotEmpty) ...[
@@ -310,18 +335,18 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             const SizedBox(height: 20),
 
             // ─── ISSUE CATEGORIES ───
-            _buildIssueCategoriesSection(),
+            KeyedSubtree(key: _categoriesKey, child: _buildIssueCategoriesSection()),
 
             // ─── FAQ for selected category ───
             if (_selectedCategory != null) ...[
               const SizedBox(height: 20),
-              _buildCategoryFaqSection(),
+              KeyedSubtree(key: _faqSectionKey, child: _buildCategoryFaqSection()),
             ],
 
             // ─── Answer display with auto-resolution ───
             if (_selectedQuestion != null) ...[
               const SizedBox(height: 16),
-              _buildAnswerSection(),
+              KeyedSubtree(key: _answerKey, child: _buildAnswerSection()),
             ],
 
             // ─── Tap-based Feedback ───
@@ -338,6 +363,58 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
   }
 
   // ─── CALL SUPPORT ───
+  /// Entry into the chat flow: the assistant answers from the admin-managed
+  /// FAQs first, and "Talk to an agent" inside it opens a real support thread.
+  Widget _buildChatEntryCard() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const SupportChatScreen()),
+        ),
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2)),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.appColor.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.forum_outlined, color: AppColors.appColor, size: 23),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text('Chat with us',
+                        style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700)),
+                    SizedBox(height: 2),
+                    Text('Instant answers — and a real person when you need one',
+                        style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios, size: 15, color: Colors.grey),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCallSupportCard() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -583,6 +660,9 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                     _confirmation = null;
                   });
                   _loadFaqs(cat['id'] as String);
+                  // The expansion happens below the tap point; without this the
+                  // customer sees nothing change.
+                  _revealSection(_faqSectionKey);
                 },
                 child: Container(
                   decoration: BoxDecoration(
@@ -621,8 +701,30 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("Common questions — $catLabel", style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text("Common questions — $catLabel",
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              ),
+              // The way back up. Clearing the selection collapses this section,
+              // and the scroll returns to the category grid so the customer is
+              // never stranded mid-page looking at nothing.
+              TextButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _selectedCategory = null;
+                    _selectedQuestion = null;
+                    _confirmation = null;
+                  });
+                  _revealSection(_categoriesKey);
+                },
+                icon: const Icon(Icons.grid_view_rounded, size: 15),
+                label: const Text('All categories', style: TextStyle(fontSize: 12.5)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
           if (_loadingFaqs)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
@@ -661,7 +763,11 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           ...faqs.map((faq) {
             final isSelected = _selectedQuestion == faq.question;
             return InkWell(
-              onTap: () => setState(() { _selectedQuestion = faq.question; _confirmation = null; }),
+              onTap: () {
+                setState(() { _selectedQuestion = faq.question; _confirmation = null; });
+                // The answer renders below the list — bring it into view.
+                _revealSection(_answerKey);
+              },
               child: Container(
                 width: double.infinity, margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),

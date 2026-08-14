@@ -64,20 +64,11 @@ class _DeliveryCategoryScreenState extends State<DeliveryCategoryScreen> {
       allVehicles: filteredVehicles.cast(),
     );
 
-    if (dataWithFilteredVehicles.hasVehicle) {
-      // Check if selected vehicle is allowed for this category
-      if (category.allowedVehicleTypeIds.isNotEmpty &&
-          !category.allowedVehicleTypeIds.contains(dataWithFilteredVehicles.selectedVehicle!.id)) {
-        // Vehicle not allowed for this category → go to vehicle selection
-        pushTo(context, VehicleSelectionScreen(bookingData: dataWithFilteredVehicles));
-      } else {
-        // Vehicle is fine → go to review
-        pushTo(context, ReviewBookingScreen(bookingData: dataWithFilteredVehicles));
-      }
-    } else {
-      // No vehicle selected → pick one
-      pushTo(context, VehicleSelectionScreen(bookingData: dataWithFilteredVehicles));
-    }
+    // ALWAYS through the pricing page (client decision). A vehicle chosen on
+    // the home screen used to skip straight to Review, so the customer never
+    // saw the recommended option or the other vehicles' prices; now the prior
+    // choice arrives preselected on the pricing page instead.
+    pushTo(context, VehicleSelectionScreen(bookingData: dataWithFilteredVehicles));
   }
 
   @override
@@ -220,6 +211,42 @@ class _DeliveryCategoryScreenState extends State<DeliveryCategoryScreen> {
   }
 }
 
+/// The design's photographic thumbnail for a goods category, matched on the
+/// category NAME.
+///
+/// The backend stores an `icon` per record, but several are emoji ("💊", "🥛",
+/// "📦") and the app fell back to a 📦 glyph — so the design's artwork, which
+/// already ships in assets/, never appeared. A record's real image URL still
+/// wins; this only fills the gap.
+///
+/// Matched on keywords rather than exact names because the admin-managed
+/// categories do not use the design's wording: the live data has "Parcel",
+/// "Documents", "Food Items" and "Machinery Parts" where the design says
+/// "Boxes /Parcels", "Office / Documents", "Groceries / Essentials" and
+/// "Hardware / Tools".
+///
+/// NOTE: there is deliberately no entry for Hardware/Tools or Machinery Parts —
+/// no such asset exists in the repo. Those keep the backend's own icon rather
+/// than borrowing a picture of something else.
+String? _designAssetForCategory(String name) {
+  final n = name.toLowerCase();
+  bool has(List<String> keys) => keys.any(n.contains);
+
+  if (has(['box', 'parcel', 'carton', 'courier'])) return 'assets/boxes.png';
+  if (has(['furnitur', 'chair', 'table'])) return 'assets/furniture.png';
+  if (has(['grocer', 'essential', 'food', 'vegetable', 'fruit'])) {
+    return 'assets/groceries.png';
+  }
+  if (has(['electronic', 'appliance', 'fridge', 'tv'])) {
+    return 'assets/electronics.png';
+  }
+  if (has(['office', 'document', 'file', 'folder'])) return 'assets/office.png';
+  if (has(['cloth', 'apparel', 'fashion', 'boutique'])) {
+    return 'assets/clothing.png';
+  }
+  return null;
+}
+
 class _CategoryTile extends StatelessWidget {
   final String icon;
   final String title;
@@ -238,6 +265,19 @@ class _CategoryTile extends StatelessWidget {
     // The design shows photo thumbnails; the backend `icon` may be a URL, an
     // asset path, or an emoji, so all three still render.
     const double thumb = 56;
+
+    // The design's artwork for this category, when one exists. Used when the
+    // record carries an emoji instead of an image, and when a real image URL
+    // fails to load — previously both cases showed a bare 📦 glyph.
+    final designAsset = _designAssetForCategory(title);
+    Widget lastResort() => designAsset != null
+        ? Image.asset(designAsset,
+            width: thumb, height: thumb, fit: BoxFit.cover)
+        : Center(
+            child: Text(icon.isNotEmpty ? icon : '📦',
+                style: const TextStyle(fontSize: 32)),
+          );
+
     Widget iconWidget;
     if (icon.startsWith('http')) {
       iconWidget = Image.network(
@@ -245,8 +285,7 @@ class _CategoryTile extends StatelessWidget {
         width: thumb,
         height: thumb,
         fit: BoxFit.cover,
-        errorBuilder: (_, _, _) =>
-            const Center(child: Text('📦', style: TextStyle(fontSize: 30))),
+        errorBuilder: (_, _, _) => lastResort(),
       );
     } else if (icon.startsWith('assets/')) {
       iconWidget = Image.asset(
@@ -254,14 +293,11 @@ class _CategoryTile extends StatelessWidget {
         width: thumb,
         height: thumb,
         fit: BoxFit.cover,
-        errorBuilder: (_, _, _) =>
-            const Center(child: Text('📦', style: TextStyle(fontSize: 30))),
+        errorBuilder: (_, _, _) => lastResort(),
       );
     } else {
-      iconWidget = Center(
-        child: Text(icon.isNotEmpty ? icon : '📦',
-            style: const TextStyle(fontSize: 32)),
-      );
+      // Emoji or empty — prefer the design artwork over the glyph.
+      iconWidget = lastResort();
     }
 
     return InkWell(

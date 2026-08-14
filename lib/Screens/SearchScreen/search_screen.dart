@@ -13,7 +13,9 @@ import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:movezy_user_app/Services/routing_service.dart';
 import 'package:http/http.dart' as http;
 
 class SearchScreen extends StatefulWidget {
@@ -41,11 +43,28 @@ class _SearchScreenState extends State<SearchScreen> {
   static const int _maxStops = 3;
   bool _locatingPickup = false;
 
-  List<dynamic> _recentDeliveries = [];
+  /// "Recent places" from the design: the PLACES this customer has been to,
+  /// not the orders they placed. Derived from booking history because that is
+  /// the only record of where they have actually been — a booking's pickup,
+  /// drop and stops each carry an address plus real coordinates.
+  List<_RecentPlace> _recentPlaces = [];
 
-  /// Booking ids the customer has cleared from "Recent Deliveries".
-  static const String _dismissedRecentKey = 'dismissed_recent_deliveries';
+  /// Place keys the customer has cleared. Keyed by rounded coordinates rather
+  /// than booking id: the same place reached through two different bookings is
+  /// one entry in this list, so clearing it must clear both.
+  static const String _dismissedRecentKey = 'dismissed_recent_places';
   bool _loadingRecent = true;
+
+  /// Where the customer is now, used for the distance shown on the right of
+  /// each row. Null until located — the distance is then omitted rather than
+  /// guessed, since a wrong distance is worse than none.
+  double? _hereLat, _hereLng;
+
+  /// Road geometry for the route preview under the address fields. The design
+  /// shows the trip drawn on a map as stops are added, so the customer can see
+  /// the detour a stop causes before committing to it.
+  List<LatLng> _previewRoute = const [];
+  final MapController _previewMapController = MapController();
 
   @override
   void initState() {
@@ -60,22 +79,32 @@ class _SearchScreenState extends State<SearchScreen> {
       _dropLat = widget.bookingData!.dropLat;
       _dropLng = widget.bookingData!.dropLng;
     }
-    _fetchRecentDeliveries();
+    _fetchRecentPlaces();
+    _refreshPreviewRoute();
   }
 
   /// Remember what was cleared, so it stays cleared.
-  Future<void> _clearRecentDeliveries() async {
-    final ids = _recentDeliveries
-        .map((b) => (b['_id'] ?? '').toString())
-        .where((s) => s.isNotEmpty)
-        .toList();
+  ///
+  /// These places are derived from real booking history and there is no
+  /// endpoint to hide a booking (and deleting one would be wrong), so the
+  /// dismissal is remembered locally — "Clear All" used to empty the list in
+  /// memory only, and every entry came straight back on the next visit.
+  Future<void> _clearRecentPlaces() async {
     final dismissed = Prefs.getStringList(_dismissedRecentKey).toSet()
-      ..addAll(ids);
+      ..addAll(_recentPlaces.map((p) => p.key));
     await Prefs.setStringList(_dismissedRecentKey, dismissed.toList());
-    if (mounted) setState(() => _recentDeliveries.clear());
+    if (mounted) setState(() => _recentPlaces.clear());
   }
 
-  Future<void> _fetchRecentDeliveries() async {
+  /// Build "Recent places" from booking history.
+  ///
+  /// A booking records where the customer actually went — pickup, drop and any
+  /// intermediate stops — each with an address AND coordinates. Those are the
+  /// places. The previous version listed BOOKINGS instead ("Tata Ace • #MZ0007"),
+  /// which is a different thing and is what the design's Recent places section
+  /// replaced. More bookings are pulled than rows shown because several
+  /// bookings commonly share a place, and duplicates collapse into one entry.
+  Future<void> _fetchRecentPlaces() async {
     try {
       final token = Prefs.getString('token');
       if (token.isEmpty) {
@@ -83,52 +112,138 @@ class _SearchScreenState extends State<SearchScreen> {
         return;
       }
       final response = await http.get(
-        Uri.parse('${ApiUrls.userBookingsUrl}?page=1&limit=3'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        Uri.parse('${ApiUrls.userBookingsUrl}?page=1&limit=15'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
       );
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        final List bookings = json['data']?['bookings'] ?? [];
-        // Drop anything the customer has cleared. This list is derived from
-        // real booking history and there's no endpoint to hide a booking (and
-        // deleting one would be wrong), so the dismissal is remembered locally
-        // — "Clear All" used to empty the list in memory only, and every entry
-        // came straight back on the next visit.
-        final dismissed = Prefs.getStringList(_dismissedRecentKey).toSet();
-        final visible = bookings
-            .where((b) => !dismissed.contains((b['_id'] ?? '').toString()))
-            .toList();
-        if (mounted) setState(() { _recentDeliveries = visible; _loadingRecent = false; });
-      } else {
+      if (response.statusCode != 200) {
         if (mounted) setState(() => _loadingRecent = false);
+        return;
       }
+
+      final json = jsonDecode(response.body);
+      final List bookings = json['data']?['bookings'] ?? [];
+      final dismissed = Prefs.getStringList(_dismissedRecentKey).toSet();
+
+      // Newest first, de-duplicated by rounded coordinates: ~4 decimal places
+      // is roughly 11 m, close enough that two pins that far apart are the
+      // same doorway.
+      final seen = <String>{};
+      final places = <_RecentPlace>[];
+      for (final b in bookings) {
+        for (final raw in [b['pickup'], b['drop'], ...?(b['stops'] as List?)]) {
+          final place = _RecentPlace.fromLocation(raw);
+          if (place == null) continue;
+          if (dismissed.contains(place.key)) continue;
+          if (!seen.add(place.key)) continue;
+          places.add(place);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _recentPlaces = places.take(5).toList();
+          _loadingRecent = false;
+        });
+      }
+      _resolveDistances();
     } catch (e) {
-      debugPrint('Fetch recent deliveries error: $e');
+      debugPrint('Fetch recent places error: $e');
       if (mounted) setState(() => _loadingRecent = false);
     }
   }
 
-  /// One-tap reorder: pre-fill pickup & drop from a past booking
-  void _reorderBooking(dynamic order) {
-    final pickup = order['pickup'];
-    final drop = order['drop'];
-    if (pickup != null) {
+  /// Fill in the distance shown on each row, once we know where the user is.
+  /// Best-effort: if permission is denied or the fix fails, the rows simply
+  /// render without a distance.
+  Future<void> _resolveDistances() async {
+    try {
+      final perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        // Low accuracy is plenty for a "2.7km" label and returns fast; the
+        // time limit stops a poor fix from leaving the rows blank forever.
+        desiredAccuracy: LocationAccuracy.low,
+        timeLimit: const Duration(seconds: 10),
+      );
+      if (!mounted) return;
       setState(() {
-        _pickupController.text = pickup['address'] ?? '';
-        _pickupLat = (pickup['lat'] as num?)?.toDouble();
-        _pickupLng = (pickup['lng'] as num?)?.toDouble();
+        _hereLat = pos.latitude;
+        _hereLng = pos.longitude;
       });
+    } catch (e) {
+      debugPrint('Recent places distance lookup skipped: $e');
     }
-    if (drop != null) {
-      setState(() {
-        _dropController.text = drop['address'] ?? '';
-        _dropLat = (drop['lat'] as num?)?.toDouble();
-        _dropLng = (drop['lng'] as num?)?.toDouble();
-      });
-    }
-    // Auto-proceed
-    _proceedToCategory();
   }
+
+  /// True once there is a route worth drawing — used to swap the address
+  /// pickers for the map preview.
+  bool get _hasRoutePreview => _routeWaypoints.length >= 2;
+
+  /// Every point of the trip, in the order it is travelled: pickup, each stop
+  /// that has coordinates, then drop. Used for both the map markers and the
+  /// route geometry.
+  List<LatLng> get _routeWaypoints => [
+        if (_pickupLat != null && _pickupLng != null)
+          LatLng(_pickupLat!, _pickupLng!),
+        for (final st in _stops)
+          if (st.hasCoords) LatLng(st.lat!, st.lng!),
+        if (_dropLat != null && _dropLng != null) LatLng(_dropLat!, _dropLng!),
+      ];
+
+  /// Redraw the preview whenever the trip changes — a stop added, removed, or
+  /// given a location. Falls back to straight segments when routing is
+  /// unavailable, so the map is never blank while points exist.
+  Future<void> _refreshPreviewRoute() async {
+    final pts = _routeWaypoints;
+    if (pts.length < 2) {
+      if (mounted) setState(() => _previewRoute = const []);
+      return;
+    }
+    final drawn = <LatLng>[];
+    for (var i = 0; i < pts.length - 1; i++) {
+      drawn.addAll(await RoutingService.route(pts[i], pts[i + 1]));
+    }
+    if (!mounted) return;
+    setState(() => _previewRoute = drawn.length >= 2 ? drawn : pts);
+    _fitPreviewToRoute();
+  }
+
+  /// Frame the whole trip. Without this the map stays on its initial centre and
+  /// a stop added far away simply falls outside the visible area.
+  void _fitPreviewToRoute() {
+    final pts = _previewRoute.isNotEmpty ? _previewRoute : _routeWaypoints;
+    if (pts.length < 2) return;
+    try {
+      _previewMapController.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(pts),
+          padding: const EdgeInsets.all(36),
+        ),
+      );
+    } catch (_) {
+      // The controller is not attached until the map is laid out; the next
+      // refresh after layout will frame it.
+    }
+  }
+
+  /// Straight-line km from the user to a place, or null when we cannot say.
+  double? _distanceKmTo(_RecentPlace p) {
+    if (_hereLat == null || _hereLng == null) return null;
+    const d = Distance();
+    return d.as(
+          LengthUnit.Meter,
+          LatLng(_hereLat!, _hereLng!),
+          LatLng(p.lat, p.lng),
+        ) /
+        1000.0;
+  }
+
 
   @override
   void dispose() {
@@ -150,6 +265,8 @@ class _SearchScreenState extends State<SearchScreen> {
       _stops[index].controller.dispose();
       _stops.removeAt(index);
     });
+    // The route shortens as soon as the stop is gone.
+    _refreshPreviewRoute();
   }
 
   /// Pick a stop's location on the map. A stop is only usable with real
@@ -173,6 +290,7 @@ class _SearchScreenState extends State<SearchScreen> {
       stop.lat = result.lat;
       stop.lng = result.lng;
     });
+    _refreshPreviewRoute();
   }
 
   /// Open map picker for pickup or drop
@@ -204,6 +322,7 @@ class _SearchScreenState extends State<SearchScreen> {
           _dropLng = result.lng;
         }
       });
+      _refreshPreviewRoute();
     }
   }
 
@@ -262,6 +381,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _dropLng = selected.longitude;
       }
     });
+    _refreshPreviewRoute();
   }
 
   String _formatSavedAddress(AddressModel a) {
@@ -309,6 +429,7 @@ class _SearchScreenState extends State<SearchScreen> {
           _pickupLat = pos.latitude;
           _pickupLng = pos.longitude;
         });
+        _refreshPreviewRoute();
       }
     } catch (e) {
       if (mounted) {
@@ -357,6 +478,109 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// Navigate to delivery category with current addresses
   /// One numbered stop row: badge, address (tap to pick on map), remove.
+  /// The design's route preview: the trip drawn on a map directly under the
+  /// address fields, so a stop's detour is visible before the customer
+  /// commits. Nothing is shown until there are at least two points to join —
+  /// an empty map would just be a grey rectangle.
+  Widget _routePreviewMap() {
+    final pts = _routeWaypoints;
+    if (pts.length < 2) return const SizedBox.shrink();
+
+    final line = _previewRoute.isNotEmpty ? _previewRoute : pts;
+    final pickup = pts.first;
+    final last = pts.last;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: SizedBox(
+          height: 260,
+          child: FlutterMap(
+            mapController: _previewMapController,
+            options: MapOptions(
+              initialCenter: pickup,
+              initialZoom: 11,
+              // A preview, not a map screen: taps belong to the fields above,
+              // and a scrollable map inside a scrollable page fights the page.
+              interactionOptions:
+                  const InteractionOptions(flags: InteractiveFlag.none),
+              onMapReady: _fitPreviewToRoute,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.movezy_user_app',
+              ),
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: line,
+                    strokeWidth: 4,
+                    color: HexColor('#2D5BE3'),
+                  ),
+                ],
+              ),
+              MarkerLayer(
+                markers: [
+                  // Pickup — the green pin the design puts at the origin.
+                  Marker(
+                    point: pickup,
+                    width: 34,
+                    height: 42,
+                    alignment: Alignment.topCenter,
+                    child: Icon(Icons.location_on,
+                        size: 34, color: HexColor('#22A447')),
+                  ),
+                  // Each intermediate stop carries its number, matching the
+                  // numbered badge on its field above.
+                  for (var i = 1; i < pts.length - 1; i++)
+                    Marker(
+                      point: pts[i],
+                      width: 30,
+                      height: 38,
+                      alignment: Alignment.topCenter,
+                      child: _numberedPin('$i'),
+                    ),
+                  // Final drop.
+                  if (pts.length > 1)
+                    Marker(
+                      point: last,
+                      width: 30,
+                      height: 38,
+                      alignment: Alignment.topCenter,
+                      child: _numberedPin('${pts.length - 1}'),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Red teardrop with a white number, as the design draws each stop.
+  Widget _numberedPin(String label) {
+    return Stack(
+      alignment: Alignment.topCenter,
+      children: [
+        Icon(Icons.location_on, size: 34, color: HexColor('#E23B32')),
+        Padding(
+          padding: const EdgeInsets.only(top: 5),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _stopRow(int index) {
     final stop = _stops[index];
     return Padding(
@@ -368,16 +592,20 @@ class _SearchScreenState extends State<SearchScreen> {
             width: 34,
             height: 34,
             alignment: Alignment.center,
+            // Orange tile, white numeral — the design's numbered badge. It
+            // was inverted (white tile, orange numeral), which read as a
+            // disabled field rather than an ordered stop.
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: HexColor('#E85D18'),
               borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white, width: 2),
             ),
             child: Text(
               '${index + 1}',
-              style: TextStyle(
-                color: AppColors.appColor,
+              style: const TextStyle(
+                color: Colors.white,
                 fontWeight: FontWeight.w700,
-                fontSize: 13,
+                fontSize: 15,
               ),
             ),
           ),
@@ -706,153 +934,195 @@ class _SearchScreenState extends State<SearchScreen> {
               )
           ),
 
+          // Route preview — the design shows the trip on a map as stops
+          // are added.
+          _routePreviewMap(),
+
           SizedBox(height: 20,),
 
-          InkWell(
-            onTap: _pickFromSavedAddresses,
-            child: Container(
+          // Saved Addresses and Recent places are the ways to START a trip.
+          // Once pickup and drop are set the route preview above replaces
+          // them, as in the design — keeping pickers on screen below a drawn
+          // route is just noise the customer has to scroll past.
+          if (!_hasRoutePreview) ...[
+            InkWell(
+              onTap: _pickFromSavedAddresses,
+              child: Container(
+                color: Colors.white,
+                height: 60,
+                child: Row(
+                  children: [
+
+                    SizedBox(width: 20,),
+
+                    SizedBox(
+                      height: 25,
+                        width: 25,
+                        child: Image.asset("assets/heart_icon.png")
+                    ),
+
+                    SizedBox(width: 10,),
+
+                    Text("Saved Addresses ",style: TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.w500),),
+
+                    Expanded(child: Container(width: 0,)),
+
+                    Icon(Icons.arrow_forward_ios, size: 16,),
+
+                    SizedBox(width: 20,)
+                  ],
+                ),
+              ),
+            ),
+
+            SizedBox(height: 20,),
+
+
+            // ─── RECENT PLACES (real data) ───
+            // The design's section: places the customer has been to, with the
+            // distance from where they are now. It replaced a "Recent
+            // Deliveries" list that showed ORDERS ("Tata Ace • #MZ0007") — a
+            // different thing, and not what the design asks for.
+            Container(
               color: Colors.white,
-              height: 60,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
               child: Row(
                 children: [
-
-                  SizedBox(width: 20,),
-
-                  SizedBox(
-                    height: 25,
-                      width: 25,
-                      child: Image.asset("assets/heart_icon.png")
+                  const Text(
+                    "Recent places",
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-
-                  SizedBox(width: 10,),
-
-                  Text("Saved Addresses ",style: TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.w500),),
-
-                  Expanded(child: Container(width: 0,)),
-
-                  Icon(Icons.arrow_forward_ios, size: 16,),
-
-                  SizedBox(width: 20,)
+                  const Spacer(),
+                  if (_recentPlaces.isNotEmpty)
+                    InkWell(
+                      onTap: _clearRecentPlaces,
+                      child: Text(
+                        "Clear All",
+                        style: TextStyle(
+                          color: HexColor('#F4BE05'),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-          ),
 
-          SizedBox(height: 20,),
-
-
-          // ─── RECENT DELIVERIES (real data) ───
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            child: Row(
-              children: [
-                Icon(Icons.history, size: 18, color: AppColors.appColor),
-                const SizedBox(width: 8),
-                Text("Recent Deliveries", style: TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.w600)),
-                const Spacer(),
-                if (_recentDeliveries.isNotEmpty)
-                  InkWell(
-                    onTap: _clearRecentDeliveries,
-                    child: Text("Clear All", style: TextStyle(color: HexColor('#F4BE05'), fontSize: 13, fontWeight: FontWeight.w600)),
-                  ),
-              ],
-            ),
-          ),
-
-          if (_loadingRecent)
-            Container(
-              color: Colors.white, height: 80,
-              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            )
-          else if (_recentDeliveries.isEmpty)
-            Container(
-              color: Colors.white, padding: const EdgeInsets.all(20),
-              child: const Center(child: Text("No recent deliveries", style: TextStyle(color: Colors.grey, fontSize: 13))),
-            )
-          else
-            Container(
-              color: Colors.white,
-              child: Column(
-                children: _recentDeliveries.map((order) {
-                  final dropAddr = order['drop']?['address'] ?? 'Unknown';
-                  final pickupAddr = order['pickup']?['address'] ?? '';
-                  // GET /bookings populates `vehicleTypeId` — the key stays
-                  // vehicleTypeId in the JSON, so reading `vehicleType` always
-                  // gave '' and the subtitle rendered as just " • #MZ0007".
-                  final vehicleName = order['vehicleTypeId']?['name'] ??
-                      order['vehicleType']?['name'] ??
-                      '';
-                  final bookingNum = order['bookingNumber'] ?? '';
-                  return Column(
-                    children: [
-                      InkWell(
-                        onTap: () {
-                          // Fill drop field from this delivery
-                          final drop = order['drop'];
-                          if (drop != null) {
-                            setState(() {
-                              _dropController.text = drop['address'] ?? '';
-                              _dropLat = (drop['lat'] as num?)?.toDouble();
-                              _dropLng = (drop['lng'] as num?)?.toDouble();
-                            });
-                          }
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 40, height: 40,
-                                decoration: BoxDecoration(color: const Color(0xFFFFF3EC), borderRadius: BorderRadius.circular(10)),
-                                child: Icon(Icons.local_shipping_outlined, color: AppColors.appColor, size: 20),
+            if (_loadingRecent)
+              Container(
+                color: Colors.white,
+                height: 80,
+                child: const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else if (_recentPlaces.isEmpty)
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                child: Text(
+                  "Places you travel to will appear here.",
+                  style: TextStyle(color: HexColor("#777777"), fontSize: 13),
+                ),
+              )
+            else
+              Container(
+                color: Colors.white,
+                child: Column(
+                  children: _recentPlaces.map((place) {
+                    final km = _distanceKmTo(place);
+                    return InkWell(
+                      onTap: () {
+                        // Fill the drop field, WITH coordinates. A tap that set
+                        // only the text left the downstream screens to guess the
+                        // coordinates, which priced a route the customer had not
+                        // chosen.
+                        setState(() {
+                          _dropController.text = [place.name, place.address]
+                              .where((e) => e.isNotEmpty)
+                              .join(', ');
+                          _dropLat = place.lat;
+                          _dropLng = place.lng;
+                        });
+                        _refreshPreviewRoute();
+                      },
+                      child: Padding(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Icon(
+                                Icons.access_time,
+                                size: 22,
+                                color: HexColor("#9E9E9E"),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      dropAddr,
-                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    place.name,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black,
                                     ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (place.address.isNotEmpty) ...[
                                     const SizedBox(height: 3),
                                     Text(
-                                      '$vehicleName • #$bookingNum',
-                                      style: TextStyle(fontSize: 11, color: HexColor("#777777")),
-                                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                                      place.address,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: HexColor("#9E9E9E"),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ],
-                                ),
+                                ],
                               ),
-                              const SizedBox(width: 8),
-                              InkWell(
-                                onTap: () => _reorderBooking(order),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.appColor.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
+                            ),
+                            // Distance is omitted entirely when the user's
+                            // position is unknown — a made-up number here would
+                            // be indistinguishable from a real one.
+                            if (km != null) ...[
+                              const SizedBox(width: 12),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  km < 10
+                                      ? "${km.toStringAsFixed(1)}km"
+                                      : "${km.round()}km",
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.black,
                                   ),
-                                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                    Icon(Icons.replay, size: 14, color: AppColors.appColor),
-                                    const SizedBox(width: 4),
-                                    Text('Reorder', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.appColor)),
-                                  ]),
                                 ),
                               ),
                             ],
-                          ),
+                          ],
                         ),
                       ),
-                      Divider(height: 1, color: Colors.grey.shade200, indent: 68),
-                    ],
-                  );
-                }).toList(),
+                    );
+                  }).toList(),
+                ),
               ),
-            ),
 
+          ],
           // NOTE: a hardcoded "Popular in your area" list (Railway Station /
           // Airport Terminal / City Bus Stand / Industrial Area) used to live
           // here. It is not in the design — which has Saved Addresses + Recent
@@ -894,7 +1164,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   Icon(Icons.search, color: Colors.white, size: 20),
                   SizedBox(width: 8),
                   Text(
-                    "Search",
+                    "search vehicle",
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 16,
@@ -917,6 +1187,51 @@ class _SearchScreenState extends State<SearchScreen> {
 /// Only usable once it has real coordinates — an address string alone can't be
 /// routed or priced, and inventing coordinates is exactly what caused the old
 /// "fares for a Delhi route you never asked for" bug.
+/// One entry in the design's "Recent places" list.
+///
+/// A booking location has an `address` and coordinates but NO name field, so
+/// the title is taken from the leading segment of the address — for
+/// "Sector 62 Office, Noida, UP" that yields "Sector 62 Office", which is what
+/// a person calls the place. When the address has no comma there is nothing to
+/// split, so the whole string becomes the title and the subtitle is dropped
+/// rather than repeating it.
+class _RecentPlace {
+  final String name;
+  final String address;
+  final double lat;
+  final double lng;
+
+  const _RecentPlace({
+    required this.name,
+    required this.address,
+    required this.lat,
+    required this.lng,
+  });
+
+  /// Identity for de-duplication and for remembering a dismissal. ~4 decimal
+  /// places is about 11 m — two pins closer than that are the same doorway,
+  /// and the same place reached via different bookings must collapse to one.
+  String get key => '${lat.toStringAsFixed(4)},${lng.toStringAsFixed(4)}';
+
+  /// Null when the location is unusable — no address, or no coordinates. A row
+  /// without coordinates could not be tapped to fill a field (the downstream
+  /// screens need lat/lng to price the trip) and could not show a distance, so
+  /// it is dropped instead of rendered as a dead entry.
+  static _RecentPlace? fromLocation(dynamic raw) {
+    if (raw is! Map) return null;
+    final address = (raw['address'] ?? '').toString().trim();
+    final lat = (raw['lat'] as num?)?.toDouble();
+    final lng = (raw['lng'] as num?)?.toDouble();
+    if (address.isEmpty || lat == null || lng == null) return null;
+
+    final parts = address.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    final name = parts.isNotEmpty ? parts.first : address;
+    final rest = parts.length > 1 ? parts.sublist(1).join(', ') : '';
+
+    return _RecentPlace(name: name, address: rest, lat: lat, lng: lng);
+  }
+}
+
 class _Stop {
   final TextEditingController controller = TextEditingController();
   double? lat;

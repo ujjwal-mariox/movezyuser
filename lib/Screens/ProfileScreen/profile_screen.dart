@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/button_widget.dart';
+import 'package:movezy_user_app/Screens/CoinsScreen/coins_screen.dart';
 import 'package:movezy_user_app/Screens/HelpSupportScreen/help_support_screen.dart';
 import 'package:movezy_user_app/Screens/LoginScreen/login_screen.dart';
 import 'package:movezy_user_app/Screens/PorterEnterpriseScreen/porter_enterprise_screen.dart';
@@ -832,9 +833,12 @@ Widget _header(BuildContext context) {
                     ),
             ),
             InkWell(
-              onTap: ()
-              {
-                pushTo(context, ReferAndEarnScreen());
+              // The two rows were crossed: "Movezy Rewards" opened Refer &
+              // Earn, and "Refer and earn" only threw up a share sheet — so
+              // the rewards screen was unreachable from the profile and the
+              // referral page was reachable only under the wrong label.
+              onTap: () {
+                pushTo(context, CoinsScreen());
               },
               child: _listItem(
                 icon: "assets/movezy_reward.png",
@@ -843,7 +847,9 @@ Widget _header(BuildContext context) {
               ),
             ),
             InkWell(
-              onTap: _shareReferral,
+              onTap: () {
+                pushTo(context, ReferAndEarnScreen());
+              },
               child: _listItem(
                 icon: "assets/refer_and_earn.png",
                 // The amount now comes from the server
@@ -855,7 +861,7 @@ Widget _header(BuildContext context) {
                 title: _referrerReward != null
                     ? "Refer and earn ₹${_referrerReward!.toInt()}"
                     : "Refer and earn",
-                trailing: _smallBtn("Share"),
+                trailing: InkWell(onTap: _shareReferral, child: _smallBtn("Share")),
               ),
             ),
             // The language selector was removed. It offered English, Hindi,

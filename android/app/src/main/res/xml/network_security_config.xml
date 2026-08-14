@@ -4,6 +4,11 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">10.0.2.2</domain>
         <domain includeSubdomains="true">localhost</domain>
+        <!-- The loopback address a physical device reaches the dev machine on via
+             `adb reverse tcp:9050 tcp:9050`. Same trust level as `localhost`
+             above, which was already listed; only `localhost` was, so a device
+             run against 127.0.0.1 had its requests blocked before they left. -->
+        <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">103.194.228.68</domain>
         <!-- No entry is needed for the live API: it is served over HTTPS
              (https://movezybackend.onrender.com), which Android permits by

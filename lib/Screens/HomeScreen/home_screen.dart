@@ -672,7 +672,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
         ),
         child: Row(
           children: [
-            Image.asset("assets/star_location.png", width: 25),
+            // The design's pickup pin, same as the search screen's field —
+            // this bar used a starred-location glyph nothing else in the app
+            // uses, which is exactly the inconsistency the client flagged.
+            Image.asset("assets/pic_up_location.png", width: 22),
             SizedBox(width: 10),
             Expanded(
               child: Column(
