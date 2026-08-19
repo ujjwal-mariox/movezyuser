@@ -64,6 +64,15 @@ class AddonService {
   final bool isActive;
   final int sortOrder;
 
+  /// Admin targeting: empty = offered for every goods category.
+  final List<String> applicableGoodsCategories;
+
+  /// Admin auto-apply: preselect this add-on when the fare qualifies. The
+  /// customer still sees the charge on the review page and can untick it —
+  /// nothing is added silently.
+  final bool autoApply;
+  final double autoApplyMinFare;
+
   AddonService({
     required this.id,
     required this.name,
@@ -74,6 +83,9 @@ class AddonService {
     required this.price,
     required this.isActive,
     required this.sortOrder,
+    this.applicableGoodsCategories = const [],
+    this.autoApply = false,
+    this.autoApplyMinFare = 0,
   });
 
   factory AddonService.fromJson(Map<String, dynamic> json) {
@@ -87,6 +99,12 @@ class AddonService {
       price: (json['price'] ?? 0).toDouble(),
       isActive: json['isActive'] ?? true,
       sortOrder: json['sortOrder'] ?? 0,
+      applicableGoodsCategories: (json['applicableGoodsCategories'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      autoApply: json['autoApply'] == true,
+      autoApplyMinFare: (json['autoApplyMinFare'] as num?)?.toDouble() ?? 0,
     );
   }
 }

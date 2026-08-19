@@ -291,13 +291,22 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
 
       if (mounted) {
         setState(() {
-          _addons = results[0] as List<AddonService>;
+          final loaded = results[0] as List<AddonService>;
+          // Admin targeting: an add-on scoped to specific goods categories is
+          // only offered where it applies (empty scope = everywhere).
+          final myCategory = widget.bookingData.goodsTypeCategory;
+          _addons = loaded.where((a) {
+            if (a.applicableGoodsCategories.isEmpty) return true;
+            if (myCategory == null) return true;
+            return a.applicableGoodsCategories.contains(myCategory);
+          }).toList();
           _promos = results[1] as List<PromoOffer>;
           _walletBalance = results[2] as double;
           _fare = results[3] as FareEstimate?;
           _loading = false;
         });
         _autoApplyBestPromo();
+        _preselectAutoApplyAddons();
       }
     } catch (e) {
       print('=== _loadData FATAL ERROR: $e ===');
@@ -409,6 +418,26 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
 
   /// Pick the best eligible promo (highest discount) and apply it silently.
   /// Eligibility: fare >= minOrderValue. No-op if already applied or no promos.
+  /// Admin-configured auto-apply (e.g. insurance on high-value orders):
+  /// PRESELECTS the add-on so its charge is visible on this page before any
+  /// payment. The customer can untick it — nothing is ever added silently,
+  /// and loading-service add-ons are excluded because they open the Load
+  /// Assist flow and must stay an explicit choice.
+  void _preselectAutoApplyAddons() {
+    final fareNow = _fare?.finalFare ?? 0;
+    if (fareNow <= 0) return;
+    var changed = false;
+    for (final a in _addons) {
+      if (!a.autoApply) continue;
+      if (_loadingCodes.contains(a.code)) continue;
+      if (fareNow < a.autoApplyMinFare) continue;
+      if (_selectedAddonIds.contains(a.id)) continue;
+      _selectedAddonIds.add(a.id);
+      changed = true;
+    }
+    if (changed && mounted) setState(() {});
+  }
+
   void _autoApplyBestPromo() {
     if (_appliedPromoCode != null || _promos.isEmpty) return;
     final fare = _fare?.finalFare ?? 0;
