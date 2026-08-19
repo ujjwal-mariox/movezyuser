@@ -47,6 +47,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// The user's REAL referral code, generated and owned by the backend
   /// (GET /user/referral/stats). Empty until it loads — never substituted.
   String _referralCode = '';
+  String _referralLink = '';
 
   /// Reward amounts as the server defines them (REFERRER_REWARD_AMOUNT /
   /// REFEREE_REWARD_AMOUNT in referral.controller). Null until loaded, and the
@@ -86,6 +87,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       setState(() {
         _referralCode = data.referralCode;
+        _referralLink = data.referralLink;
         _referrerReward = data.referrerRewardAmount;
         _refereeReward = data.refereeRewardAmount;
       });
@@ -116,11 +118,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     // Only mention the friend's bonus when the server told us what it is.
     final bonus = _refereeReward;
-    final message = bonus != null
-        ? 'Hey! Use my Movezy referral code $_referralCode when you sign up '
-            'and get ₹${bonus.toInt()} in your Movezy wallet.'
-        : 'Hey! Use my Movezy referral code $_referralCode when you sign up '
-            'on Movezy.';
+    final buffer = StringBuffer()
+      ..write(bonus != null
+          ? 'Hey! Use my Movezy referral code $_referralCode when you sign up '
+              'and get ₹${bonus.toInt()} in your Movezy wallet.'
+          : 'Hey! Use my Movezy referral code $_referralCode when you sign up '
+              'on Movezy.');
+    // Carry the download link too. This path used to build its own message and
+    // omit the link entirely, so the same customer shared different things
+    // depending on whether they tapped Share here or on the Refer & Earn page.
+    if (_referralLink.isNotEmpty) {
+      buffer.write('\n\nDownload Movezy: $_referralLink');
+    }
+    final message = buffer.toString();
 
     try {
       // ignore: deprecated_member_use

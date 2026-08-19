@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hexcolor/hexcolor.dart';
 import 'package:http/http.dart' as http;
+import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
@@ -1165,11 +1166,10 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Padding(
-                padding: EdgeInsets.only(top: 3),
-                child:
-                    Icon(Icons.circle, size: 11, color: Color(0xFF25AA59)),
+                padding: EdgeInsets.only(top: 1),
+                child: LocationIcon.pickup(size: AppIconSize.md),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(pickup,
                     maxLines: 2,
@@ -1193,10 +1193,9 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
             children: [
               const Padding(
                 padding: EdgeInsets.only(top: 1),
-                child: Icon(Icons.location_on,
-                    size: 14, color: Color(0xFFE23B32)),
+                child: LocationIcon.drop(size: AppIconSize.md),
               ),
-              const SizedBox(width: 7),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(drop,
                     maxLines: 2,

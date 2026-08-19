@@ -66,10 +66,10 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
   /// for a raised ticket and — worse — was set even when the ticket failed.
   String? _confirmation;
 
-  // FAQs come from the server (seeded into the FAQ collection) rather than
-  // being baked into the app, so an answer can be corrected without shipping a
-  // release. Note there is no admin CRUD for FAQs yet — editing means touching
-  // the DB, and getFAQs caches for an hour, so a change is not instant.
+  // FAQs come from the server rather than being baked into the app, so an
+  // answer can be corrected without shipping a release. The admin panel now
+  // has full FAQ CRUD and invalidates the server cache on every write, so an
+  // edit reaches the app immediately.
   // Cached per category for the life of the screen.
   final Map<String, List<Faq>> _faqCache = {};
   bool _loadingFaqs = false;
@@ -98,7 +98,64 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
   }
 
   // ─── Issue Categories ───
-  static const List<Map<String, dynamic>> _issueCategories = [
+  //
+  // Rendered from what the server actually has FAQs for. The list used to be a
+  // hardcoded const of six ids, so a category an admin created in the panel
+  // could never appear here — its FAQs were unreachable from this screen even
+  // though the API returned them.
+  List<Map<String, dynamic>> _serverCategories = const [];
+
+  List<Map<String, dynamic>> get _issueCategories =>
+      _serverCategories.isEmpty ? _defaultCategories : _serverCategories;
+
+  /// Presentation for the ids the design covers. Anything else the admin
+  /// creates still renders, with a neutral icon and a title-cased label.
+  static const Map<String, List<dynamic>> _categoryStyle = {
+    'driver_late': [Icons.schedule, Color(0xFFFF9800), 'Driver Late'],
+    'payment': [Icons.payment, Color(0xFF4CAF50), 'Payment Issue'],
+    'account': [Icons.person_outline, Color(0xFF2196F3), 'Account Issue'],
+    'cancellation': [Icons.cancel_outlined, Color(0xFFF44336), 'Cancellation'],
+    'damaged': [Icons.broken_image_outlined, Color(0xFF9C27B0), 'Damaged Goods'],
+    'other': [Icons.help_outline, Color(0xFF607D8B), 'Other'],
+  };
+
+  static String _prettyLabel(String id) => id
+      .replaceAll('_', ' ')
+      .split(' ')
+      .where((w) => w.isNotEmpty)
+      .map((w) => '${w[0].toUpperCase()}${w.substring(1)}')
+      .join(' ');
+
+  /// Discover categories from the server and prime the cache in one call.
+  /// Falls back to the designed six when the call fails, so the screen is
+  /// never empty.
+  Future<void> _loadCategories() async {
+    try {
+      final all = await SupportService.getFaqs('');
+      if (!mounted || all.isEmpty) return;
+      final grouped = <String, List<Faq>>{};
+      for (final f in all) {
+        final c = f.category.isEmpty ? 'other' : f.category;
+        grouped.putIfAbsent(c, () => []).add(f);
+      }
+      setState(() {
+        _faqCache.addAll(grouped);
+        _serverCategories = grouped.keys.map((id) {
+          final style = _categoryStyle[id];
+          return {
+            'id': id,
+            'icon': style != null ? style[0] as IconData : Icons.help_outline,
+            'label': style != null ? style[2] as String : _prettyLabel(id),
+            'color': style != null ? style[1] as Color : const Color(0xFF607D8B),
+          };
+        }).toList();
+      });
+    } catch (_) {
+      // Keep the designed defaults.
+    }
+  }
+
+  static const List<Map<String, dynamic>> _defaultCategories = [
     {'id': 'driver_late', 'icon': Icons.schedule, 'label': 'Driver Late', 'color': Color(0xFFFF9800)},
     {'id': 'payment', 'icon': Icons.payment, 'label': 'Payment Issue', 'color': Color(0xFF4CAF50)},
     {'id': 'account', 'icon': Icons.person_outline, 'label': 'Account Issue', 'color': Color(0xFF2196F3)},
@@ -110,6 +167,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
   @override
   void initState() {
     super.initState();
+    _loadCategories();
     _fetchRecentOrders();
     _fetchSupportPhone();
   }

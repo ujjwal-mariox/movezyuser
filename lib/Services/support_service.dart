@@ -73,12 +73,22 @@ class Faq {
   final String question;
   final String answer;
 
-  Faq({required this.id, required this.question, required this.answer});
+  /// Needed so the Help screen can group an ungrouped fetch back into
+  /// categories — otherwise an admin-created category could never surface.
+  final String category;
+
+  Faq({
+    required this.id,
+    required this.question,
+    required this.answer,
+    this.category = '',
+  });
 
   factory Faq.fromJson(Map<String, dynamic> json) => Faq(
         id: (json['_id'] ?? json['id'] ?? '').toString(),
         question: (json['question'] ?? '').toString(),
         answer: (json['answer'] ?? '').toString(),
+        category: (json['category'] ?? '').toString(),
       );
 }
 
@@ -95,9 +105,15 @@ class SupportService {
 
   /// FAQs for one issue category. These lived hardcoded in the app, so support
   /// answers could only be corrected by shipping a release.
+  /// Pass an empty category to fetch every FAQ — the Help screen builds its
+  /// category grid from what comes back, so a category the admin creates shows
+  /// up without an app release.
   static Future<List<Faq>> getFaqs(String category) async {
+    final url = category.isEmpty
+        ? ApiUrls.supportAllFaqsUrl
+        : ApiUrls.supportFaqsUrl(category);
     final res = await http
-        .get(Uri.parse(ApiUrls.supportFaqsUrl(category)), headers: _headers())
+        .get(Uri.parse(url), headers: _headers())
         .timeout(const Duration(seconds: 20));
     final body = jsonDecode(res.body);
     if (!_ok(res, body)) {

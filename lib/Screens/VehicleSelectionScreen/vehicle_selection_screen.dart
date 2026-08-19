@@ -3,7 +3,7 @@ import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/home_page_model.dart';
-import 'package:movezy_user_app/Screens/LoadAssistScreen/load_assist_screen.dart';
+import 'package:movezy_user_app/Screens/ReviewBookingScreen/review_booking_screen.dart';
 import 'package:movezy_user_app/Services/booking_service.dart';
 import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 
@@ -227,7 +227,15 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                         final selected = _options[_selectedIndex!];
                         final vehicle = _toHomeVehicleType(selected);
                         final updatedData = widget.bookingData.copyWith(selectedVehicle: vehicle);
-                        pushTo(context, LoadAssistScreen(bookingData: updatedData));
+                        // Straight to Review. The old LoadAssistScreen sat here
+                        // unconditionally — every customer saw a page titled
+                        // "Load Assist" whether or not they wanted loading help,
+                        // which is exactly what the client asked to stop. Its
+                        // content was redundant too: goods category is already
+                        // set on the delivery-category screen, and Review
+                        // re-collects weight on its quantity steppers. Load
+                        // Assist now opens only from the add-on toggle.
+                        pushTo(context, ReviewBookingScreen(bookingData: updatedData));
                       }
                     : null,
                 child: Text(

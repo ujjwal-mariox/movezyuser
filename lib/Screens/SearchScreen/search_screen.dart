@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:hexcolor/hexcolor.dart';
 import 'package:movezy_user_app/Screens/DeliveryCategoryScreen/delivery_category_screen.dart';
@@ -800,7 +801,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                           padding: EdgeInsets.all(6),
-                          child: Image.asset("assets/pic_up_location.png", height: 20,width: 20,),
+                          child: const LocationIcon.pickup(),
                         ),
 
                         Expanded(child: Container(
@@ -857,7 +858,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                           padding: EdgeInsets.all(6),
-                          child: Image.asset("assets/drop_up_location.png", height: 20,width: 20,),
+                          child: const LocationIcon.drop(),
                         ),
 
                         Expanded(child: GestureDetector(

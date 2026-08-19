@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:hexcolor/hexcolor.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
 import 'package:movezy_user_app/Services/routing_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
@@ -1417,28 +1418,20 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
                                           CrossAxisAlignment.center,
                                       children: [
                                         const SizedBox(height: 10),
-                                        Container(
-                                          height: 13,
-                                          width: 13,
-                                          decoration: BoxDecoration(
-                                            borderRadius:
-                                                BorderRadius.circular(
-                                                    100),
-                                            color: HexColor("#25AA59"),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 1),
+                                        // Same pickup/drop pair as every other
+                                        // address view; the dotted line between
+                                        // them keeps the route-timeline idiom.
+                                        const LocationIcon.pickup(
+                                            size: AppIconSize.md),
+                                        const SizedBox(height: 2),
                                         Image.asset(
                                             'assets/small_dotted_line.png',
                                             width: 1,
-                                            height: 70,
+                                            height: 62,
                                             fit: BoxFit.cover),
-                                        const SizedBox(height: 1),
-                                        Image.asset(
-                                            'assets/clip_path.png',
-                                            width: 18,
-                                            height: 18,
-                                            fit: BoxFit.cover),
+                                        const SizedBox(height: 2),
+                                        const LocationIcon.drop(
+                                            size: AppIconSize.md),
                                       ],
                                     ),
                                   ),

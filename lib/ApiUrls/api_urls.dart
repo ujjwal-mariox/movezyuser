@@ -54,6 +54,9 @@ class ApiUrls {
       "$baseUrlApi/support/tickets/$ticketId/close";
   static String supportFaqsUrl(String category) =>
       "$baseUrlApi/support/faqs?category=$category";
+  /// Every active FAQ, ungrouped — the Help screen derives its categories
+  /// from this so admin-created categories appear without an app release.
+  static String supportAllFaqsUrl = "$baseUrlApi/support/faqs";
   static String supportFaqFeedbackUrl(String faqId) =>
       "$baseUrlApi/support/faqs/$faqId/feedback";
 

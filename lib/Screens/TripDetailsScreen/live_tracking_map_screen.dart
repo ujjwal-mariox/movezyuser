@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:hexcolor/hexcolor.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
 import 'package:movezy_user_app/Services/routing_service.dart';
 
 /// Full-screen live route map: pickup, drop, and the driver's live position.
@@ -251,11 +252,9 @@ class _LiveTrackingMapScreenState extends State<LiveTrackingMapScreen> {
                         ),
                       ),
                     ),
-                  _addressRow(
-                      Icons.trip_origin, HexColor("#2E9E5B"), widget.pickupAddress),
+                  _addressRow(true, widget.pickupAddress),
                   const SizedBox(height: 8),
-                  _addressRow(
-                      Icons.location_on, HexColor("#EE3E35"), widget.dropAddress),
+                  _addressRow(false, widget.dropAddress),
                 ],
               ),
             ),
@@ -265,10 +264,10 @@ class _LiveTrackingMapScreenState extends State<LiveTrackingMapScreen> {
     );
   }
 
-  Widget _addressRow(IconData icon, Color color, String text) => Row(
+  Widget _addressRow(bool isPickup, String text) => Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 16, color: color),
+          LocationIcon(isPickup: isPickup, size: AppIconSize.md),
           const SizedBox(width: 8),
           Expanded(
             child: Text(

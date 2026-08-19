@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:intl/intl.dart';
 import 'package:movezy_user_app/Screens/SearchScreen/search_screen.dart';
@@ -675,7 +676,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
             // The design's pickup pin, same as the search screen's field —
             // this bar used a starred-location glyph nothing else in the app
             // uses, which is exactly the inconsistency the client flagged.
-            Image.asset("assets/pic_up_location.png", width: 22),
+            const LocationIcon.pickup(),
             SizedBox(width: 10),
             Expanded(
               child: Column(
