@@ -881,7 +881,7 @@ Widget _header(BuildContext context) {
             // the strings are actually translated.
             // ─── Terms & Conditions ───
             InkWell(
-              onTap: () => showLegalSheet(context, 'Terms & Conditions', LegalText.terms),
+              onTap: () => showServerLegalSheet(context, 'Terms & Conditions', 'TERMS', LegalText.terms),
               child: _listItem(
                 icon: "assets/gst.png",
                 title: "Terms & Conditions",
@@ -890,7 +890,7 @@ Widget _header(BuildContext context) {
             ),
             // ─── Privacy Policy ───
             InkWell(
-              onTap: () => showLegalSheet(context, 'Privacy Policy', LegalText.privacy),
+              onTap: () => showServerLegalSheet(context, 'Privacy Policy', 'PRIVACY', LegalText.privacy),
               child: _listItem(
                 icon: "assets/gst.png",
                 title: "Privacy Policy",

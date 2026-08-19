@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:hexcolor/hexcolor.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
+import 'package:movezy_user_app/Screens/SearchScreen/search_screen.dart';
 import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
 import 'package:movezy_user_app/Services/routing_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
@@ -1535,6 +1537,49 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
 
                 // ── Order Help section ──
                 _orderHelpSection(context),
+
+                // ── Rebook — completed trips only. Reopens the booking flow
+                // with this trip's pickup/drop prefilled; price is re-quoted
+                // fresh (never the old fare — rates may have changed). ──
+                if (_status == 'COMPLETED' &&
+                    _pickupLatLng != null &&
+                    _dropLatLng != null) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.symmetric(horizontal: 20),
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.appColor,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                        elevation: 0,
+                      ),
+                      onPressed: () {
+                        pushTo(
+                          context,
+                          SearchScreen(
+                            bookingData: BookingData(
+                              pickupAddress: _pickupAddress,
+                              pickupLat: _pickupLatLng!.latitude,
+                              pickupLng: _pickupLatLng!.longitude,
+                              dropAddress: _dropAddress,
+                              dropLat: _dropLatLng!.latitude,
+                              dropLng: _dropLatLng!.longitude,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.replay, color: Colors.white, size: 18),
+                      label: const Text('Rebook this trip',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 20),
               ],

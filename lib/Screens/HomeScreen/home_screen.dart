@@ -66,9 +66,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   late AnimationController _deliveryAnimController;
   late Animation<double> _deliverySlide;
 
-  // Trust ribbon removed to match the design. Its AnimationController drove a
-  // setState loop that rebuilt the whole home tree every few seconds, so the
-  // controller and badge list are gone too rather than left spinning unseen.
+  // Trust ribbon: re-added at the client's explicit request (rotating
+  // Verified Drivers / Insured / 24-7 Support / Transparent Pricing /
+  // deliveries-completed strip). The original was removed because its
+  // rotation setState rebuilt the WHOLE home tree every few seconds; the
+  // rebuilt version is a self-contained widget with its own timer, so only
+  // the strip itself ever rebuilds.
+  int? _completedDeliveries;
 
   @override
   void initState() {
@@ -152,6 +156,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
         if (homeData != null) {
           _vehicleTypes = homeData.vehicleTypes;
           _promoBanners = homeData.promoBanners;
+          _completedDeliveries = homeData.completedDeliveries;
           debugPrint('[Home] Refresh complete: ${homeData.vehicleTypes.length} vehicles');
         }
       });
@@ -201,6 +206,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
       if (homeData != null) {
         _vehicleTypes = homeData.vehicleTypes;
         _promoBanners = homeData.promoBanners;
+        _completedDeliveries = homeData.completedDeliveries;
       }
     });
     _startPromoRotation();
@@ -486,9 +492,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
                           },
                           child: _buildHeaderVehicleInfo(),
                         ),
-                        // Trust ribbon ("24/7 Support" rotator) removed — the
-                        // design has no such strip between the header vehicle
-                        // info and the pickup box.
+                        const SizedBox(height: 10),
+                        _TrustRibbon(completedDeliveries: _completedDeliveries),
                       ],
                     ),
                   ),
@@ -1821,6 +1826,91 @@ class _VehicleMarker extends StatelessWidget {
       ),
       padding: const EdgeInsets.all(6),
       child: Icon(vehicle.icon, size: 22, color: HexColor("#FF6200")),
+    );
+  }
+}
+
+/// Rotating trust strip on the home header.
+///
+/// Self-contained: its rotation timer lives in ITS OWN State, so a tick
+/// rebuilds this ~30px strip and nothing else — the original ribbon was
+/// removed precisely because its setState rebuilt the whole home tree.
+/// The deliveries chip renders only when the server sent a real figure.
+class _TrustRibbon extends StatefulWidget {
+  final int? completedDeliveries;
+  const _TrustRibbon({this.completedDeliveries});
+
+  @override
+  State<_TrustRibbon> createState() => _TrustRibbonState();
+}
+
+class _TrustRibbonState extends State<_TrustRibbon> {
+  int _index = 0;
+  Timer? _timer;
+
+  List<(IconData, String)> get _items {
+    final items = <(IconData, String)>[
+      (Icons.verified_user_outlined, 'Verified Drivers'),
+      (Icons.shield_outlined, 'Insured Deliveries'),
+      (Icons.headset_mic_outlined, '24/7 Support'),
+      (Icons.currency_rupee, 'Transparent Pricing'),
+    ];
+    final n = widget.completedDeliveries;
+    if (n != null && n > 0) {
+      final label = n >= 1000
+          ? '${(n / 1000).toStringAsFixed(n >= 10000 ? 0 : 1)}K+ Deliveries Completed'
+          : '$n Deliveries Completed';
+      items.add((Icons.local_shipping_outlined, label));
+    }
+    return items;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted) return;
+      setState(() => _index = (_index + 1) % _items.length);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, label) = _items[_index % _items.length];
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 450),
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween<Offset>(
+                  begin: const Offset(0, 0.35), end: Offset.zero)
+              .animate(anim),
+          child: child,
+        ),
+      ),
+      child: Row(
+        key: ValueKey(label),
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 14, color: Colors.white.withValues(alpha: 0.92)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+              color: Colors.white.withValues(alpha: 0.92),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

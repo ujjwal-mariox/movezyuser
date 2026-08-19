@@ -118,9 +118,14 @@ class HomePageData {
   final List<HomeVehicleType> vehicleTypes;
   final List<PromoBanner> promoBanners;
 
+  /// Real completed-delivery total from the server, for the trust ribbon.
+  /// Null on an older backend — the ribbon then simply omits that chip.
+  final int? completedDeliveries;
+
   HomePageData({
     required this.vehicleTypes,
     required this.promoBanners,
+    this.completedDeliveries,
   });
 
   factory HomePageData.fromJson(Map<String, dynamic> json) {
@@ -132,6 +137,7 @@ class HomePageData {
       promoBanners: (data['promoBanners'] as List? ?? [])
           .map((p) => PromoBanner.fromJson(p))
           .toList(),
+      completedDeliveries: (data['completedDeliveries'] as num?)?.toInt(),
     );
   }
 }

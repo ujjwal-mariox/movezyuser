@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 
 /// Terms & Privacy, in one place.
 ///
@@ -31,12 +35,52 @@ class LegalText {
 ''';
 }
 
+/// Fetch the server's published copy of a legal document (TERMS / PRIVACY).
+/// The admin panel's Content & Policies page edits these; without this fetch
+/// its edits never reached the app — customers agreed to a baked-in snapshot.
+/// Falls back to the bundled text on any failure, so the sheet always opens.
+Future<String> fetchLegalContent(String type, String fallback) async {
+  try {
+    final res = await http
+        .get(Uri.parse('${ApiUrls.baseUrlApi}/content/$type'))
+        .timeout(const Duration(seconds: 6));
+    if (res.statusCode == 200) {
+      final body = jsonDecode(res.body);
+      final content = body['data']?['content'];
+      if (content is String && content.trim().isNotEmpty) return content;
+    }
+  } catch (_) {
+    // Offline / older backend — the bundled text still applies.
+  }
+  return fallback;
+}
+
+/// Opens the sheet immediately with the bundled text, then swaps in the
+/// server's published version when it arrives.
+void showServerLegalSheet(BuildContext context, String title, String type, String fallback) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (ctx) => FutureBuilder<String>(
+      future: fetchLegalContent(type, fallback),
+      initialData: fallback,
+      builder: (ctx, snap) => _legalSheetBody(ctx, title, snap.data ?? fallback),
+    ),
+  );
+}
+
 void showLegalSheet(BuildContext context, String title, String content) {
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    builder: (ctx) => Container(
+    builder: (ctx) => _legalSheetBody(ctx, title, content),
+  );
+}
+
+Widget _legalSheetBody(BuildContext context, String title, String content) {
+  return Container(
       constraints:
           BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
       padding: const EdgeInsets.all(20),
@@ -55,7 +99,7 @@ void showLegalSheet(BuildContext context, String title, String content) {
                   style: const TextStyle(
                       fontSize: 17, fontWeight: FontWeight.bold)),
               InkWell(
-                onTap: () => Navigator.pop(ctx),
+                onTap: () => Navigator.pop(context),
                 child: Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
@@ -76,6 +120,5 @@ void showLegalSheet(BuildContext context, String title, String content) {
           const SizedBox(height: 12),
         ],
       ),
-    ),
-  );
+    );
 }

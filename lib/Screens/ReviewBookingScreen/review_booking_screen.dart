@@ -3132,6 +3132,23 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
           // Real terms from FareConfig. These were hardcoded as "65 mins" and
           // "₹3.0/min" — contradicting the "Free 50 mins" chip on this same
           // screen, and both wrong: the server bills after ~10 mins at ₹2/min.
+          // Pre-booking checklist (client spec): preparation pointers the
+          // customer can act on, ahead of the fare terms.
+          const Text(
+            "• Ensure goods are packed properly before the driver arrives.",
+            style: TextStyle(fontSize: 11),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            "• Be present at the pickup location, or share the contact of someone who will be.",
+            style: TextStyle(fontSize: 11),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            "• Keep your phone reachable — the driver may call for directions.",
+            style: TextStyle(fontSize: 11),
+          ),
+          const SizedBox(height: 6),
           if ((_fare?.freeWaitingMinutes ?? 0) > 0) ...[
             Text(
               "• Fare includes ${_fare!.freeWaitingMinutes} mins free loading/unloading time.",

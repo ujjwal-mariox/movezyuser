@@ -505,6 +505,10 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                           fontSize: 12.5, color: Colors.grey.shade600),
                       children: [
                         TextSpan(text: option.capacityLabel),
+                        // Dimensions, when the catalog has them (client spec:
+                        // capacity AND dimensions on every option).
+                        if (option.dimensionsLabel.isNotEmpty)
+                          TextSpan(text: ' · ${option.dimensionsLabel}'),
                         if (option.durationLabel.isNotEmpty &&
                             option.estimatedDuration > 0) ...[
                           const TextSpan(text: '. '),
