@@ -98,7 +98,7 @@ class _FeedBackThanksScreenState extends State<FeedBackThanksScreen> {
                          color: HexColor("#A2BF49"),
                          shape: BoxShape.circle,
                        ),
-                       child: const Icon(Icons.check_rounded, color: Colors.white, size: 50),
+                       child: const Icon(Icons.check_rounded, color: Colors.white, size: 48),
                      ),
 
                       SizedBox(height: 20,),

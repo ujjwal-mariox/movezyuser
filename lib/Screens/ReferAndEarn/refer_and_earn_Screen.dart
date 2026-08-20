@@ -230,7 +230,7 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
               const SizedBox(height: 10),
               Image.asset(
                 "assets/mobile_icon.png",
-                height: 120,
+                height: 96,
                 fit: BoxFit.contain,
               ),
               const SizedBox(height: 4),
@@ -272,7 +272,7 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
 
               // White sheet
               SizedBox(
@@ -288,7 +288,7 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
                     mainAxisAlignment: MainAxisAlignment.start,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
                       Container(
                         margin: const EdgeInsets.only(left: 20, right: 20),
                         child: const Text(
@@ -299,19 +299,19 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
                               fontWeight: FontWeight.bold),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
                       _howItWorksStep(
                         "1",
                         "Your friend gets ₹${_refereeReward.toInt()} in their wallet",
                         "When they sign up using your referral code",
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
                       _howItWorksStep(
                         "2",
                         "You earn ₹${_referrerReward.toInt()} in your wallet",
                         "Credited after their first completed booking",
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
 
                       // Referral code box
                       GestureDetector(
@@ -381,7 +381,7 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
                             child: Row(
                               children: [
                                 const Icon(Icons.link_rounded,
-                                    size: 17, color: Colors.grey),
+                                    size: 16, color: Colors.grey),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -403,7 +403,7 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
                           ),
                         ),
                       ],
-                      const SizedBox(height: 25),
+                      const SizedBox(height: 16),
 
                       // WhatsApp — full width with the same 20px margins as
                       // the code box (the driver page's fixed 280px width was
@@ -472,7 +472,11 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
+                      // Clears the Android navigation bar; without it the
+                      // "Other Apps" button was partially under the nav bar
+                      // on 3-button devices.
+                      SizedBox(
+                          height: 10 + MediaQuery.of(context).padding.bottom),
                     ],
                   ),
                 ),

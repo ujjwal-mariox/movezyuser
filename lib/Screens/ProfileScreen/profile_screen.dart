@@ -1051,7 +1051,7 @@ Widget _header(BuildContext context) {
           children: [
             CircleAvatar(
               backgroundColor: const Color(0xFFFCEDE4),
-              child: Icon(Icons.logout, size: 21,color: Colors.black,),
+              child: Icon(Icons.logout, size: 20,color: Colors.black,),
             ),
             const SizedBox(width: 16),
 

@@ -924,7 +924,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.location_on_outlined,
-                    size: 15, color: Colors.grey.shade500),
+                    size: 14, color: Colors.grey.shade500),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -1289,9 +1289,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
                         if (progress == null) return child;
                         return Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.appColor));
                       },
-                      errorBuilder: (_, _, _) => FittedBox(fit: BoxFit.contain, child: Icon(Icons.local_shipping, size: 70, color: AppColors.appColor)),
+                      errorBuilder: (_, _, _) => FittedBox(fit: BoxFit.contain, child: Icon(Icons.local_shipping, size: 64, color: AppColors.appColor)),
                     )
-                  : FittedBox(fit: BoxFit.contain, child: Icon(Icons.local_shipping, size: 70, color: AppColors.appColor)),
+                  : FittedBox(fit: BoxFit.contain, child: Icon(Icons.local_shipping, size: 64, color: AppColors.appColor)),
             ),
             const SizedBox(height: 8),
             Text(vehicle.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),

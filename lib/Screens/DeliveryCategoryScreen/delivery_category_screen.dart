@@ -335,7 +335,7 @@ class _CategoryTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            const Icon(Icons.arrow_forward_ios, size: 15, color: Colors.black87),
+            const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.black87),
           ],
         ),
       ),

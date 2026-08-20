@@ -286,7 +286,7 @@
 //                                 color: HexColor("#F5F5F5"),
 //                                 child: Icon(
 //                                   Icons.person,
-//                                   size: 50,
+//                                   size: 48,
 //                                   color: HexColor("#B8B8B8"),
 //                                 ),
 //                               );
@@ -296,7 +296,7 @@
 //                       else
 //                         Icon(
 //                           Icons.person,
-//                           size: 50,
+//                           size: 48,
 //                           color: HexColor("#B8B8B8"),
 //                         ),
 //                       Positioned(
@@ -798,7 +798,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
                                 color: HexColor("#F5F5F5"),
                                 child: Icon(
                                   Icons.person,
-                                  size: 50,
+                                  size: 48,
                                   color: HexColor("#B8B8B8"),
                                 ),
                               );
@@ -808,7 +808,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
                       else
                         Icon(
                           Icons.person,
-                          size: 50,
+                          size: 48,
                           color: HexColor("#B8B8B8"),
                         ),
                       Positioned(

@@ -617,7 +617,7 @@ class _BookingHistoryState extends State<BookingHistory> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 13, color: Colors.grey.shade600),
+          Icon(icon, size: 12, color: Colors.grey.shade600),
           const SizedBox(width: 4),
           // Flexible: the caller's Flexible bounds this Container, but as a bare
           // Row child the Text still got unbounded width and laid out at its
@@ -866,7 +866,7 @@ class _BookingHistoryState extends State<BookingHistory> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(width: 10),
-            Icon(icon, size: 15, color: color),
+            Icon(icon, size: 14, color: color),
             const SizedBox(width: 5),
             Flexible(
               // maxLines: the Flexible bounds the label, but with no line limit
@@ -933,7 +933,7 @@ class _BookingHistoryState extends State<BookingHistory> {
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       child: Icon(
                         i < rating ? Icons.star : Icons.star_border,
-                        size: 36,
+                        size: 32,
                         color: HexColor("#F4BE05"),
                       ),
                     ),

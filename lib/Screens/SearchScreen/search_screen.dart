@@ -531,7 +531,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     height: 42,
                     alignment: Alignment.topCenter,
                     child: Icon(Icons.location_on,
-                        size: 34, color: HexColor('#22A447')),
+                        size: 32, color: HexColor('#22A447')),
                   ),
                   // Each intermediate stop carries its number, matching the
                   // numbered badge on its field above.
@@ -566,7 +566,7 @@ class _SearchScreenState extends State<SearchScreen> {
     return Stack(
       alignment: Alignment.topCenter,
       children: [
-        Icon(Icons.location_on, size: 34, color: HexColor('#E23B32')),
+        Icon(Icons.location_on, size: 32, color: HexColor('#E23B32')),
         Padding(
           padding: const EdgeInsets.only(top: 5),
           child: Text(

@@ -45,7 +45,7 @@ class _PaymentCheckoutScreenState extends State<PaymentCheckoutScreen> {
               padding: const EdgeInsets.only(left: 16.0, top: 8.0, bottom: 20.0),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Icon(Icons.close, size: 25, color: Colors.grey[600]),
+                child: Icon(Icons.close, size: 24, color: Colors.grey[600]),
               ),
             ),
           ),

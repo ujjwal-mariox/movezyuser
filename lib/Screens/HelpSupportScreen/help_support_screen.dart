@@ -469,7 +469,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                   color: AppColors.appColor.withOpacity(0.12),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.forum_outlined, color: AppColors.appColor, size: 23),
+                child: Icon(Icons.forum_outlined, color: AppColors.appColor, size: 22),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -484,7 +484,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                   ],
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios, size: 15, color: Colors.grey),
+              const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
             ],
           ),
         ),
@@ -796,7 +796,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                   });
                   _revealSection(_categoriesKey);
                 },
-                icon: const Icon(Icons.grid_view_rounded, size: 15),
+                icon: const Icon(Icons.grid_view_rounded, size: 14),
                 label: const Text('All categories', style: TextStyle(fontSize: 12.5)),
               ),
             ],

@@ -294,7 +294,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                   borderRadius: BorderRadius.circular(100),
                   border: Border.all(color: HexColor("#A2BF49"), width: 1.5)
                 ),
-                child: Icon(Icons.check_rounded, size: 30,color: HexColor("#A2BF49")),
+                child: Icon(Icons.check_rounded, size: 28,color: HexColor("#A2BF49")),
               ),
               const SizedBox(width: 10),
               Text(

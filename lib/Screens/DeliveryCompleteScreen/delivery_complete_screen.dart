@@ -123,7 +123,7 @@ class _DeliveryCompleteScreenState extends State<DeliveryCompleteScreen> {
               ),
               child: Icon(
                 Icons.check_circle,
-                size: 70,
+                size: 64,
                 color: HexColor("#25AA59"),
               ),
             ),
@@ -212,7 +212,7 @@ class _DeliveryCompleteScreenState extends State<DeliveryCompleteScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 6),
                           child: Icon(
                             i < _rating ? Icons.star : Icons.star_border,
-                            size: 42,
+                            size: 40,
                             color: i < _rating
                                 ? HexColor("#FFB800")
                                 : Colors.grey.shade300,

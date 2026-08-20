@@ -146,7 +146,7 @@ class _BookACabState extends State<BookACab> {
 
                                             SizedBox(width: 10,),
 
-                                            Icon(Icons.add, size: 25,color: HexColor("#015EA3"),),
+                                            Icon(Icons.add, size: 24,color: HexColor("#015EA3"),),
                                           ],
                                         )),
                                   ),

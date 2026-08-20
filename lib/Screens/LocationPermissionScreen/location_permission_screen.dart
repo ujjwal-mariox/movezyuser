@@ -236,7 +236,7 @@ class _LocationPermissionScreenState extends State<LocationPermissionScreen> {
                             child: Icon(
                               Icons.location_on_rounded,
                               color: Colors.white,
-                              size: 50,
+                              size: 48,
                             ),
                           ),
                         ),

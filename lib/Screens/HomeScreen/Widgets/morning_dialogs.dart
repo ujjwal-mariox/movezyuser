@@ -28,7 +28,7 @@ class _MorningDialogsState extends State<MorningDialogs> {
                   shape: BoxShape.circle,
                   color: Colors.white
               ),
-              child: const Icon(Icons.close, color: Colors.black, size: 25),
+              child: const Icon(Icons.close, color: Colors.black, size: 24),
             ),
           ),
 

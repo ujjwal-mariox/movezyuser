@@ -834,7 +834,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
                         width: 44,
                         height: 44,
                         child: const Icon(Icons.location_pin,
-                            size: 44, color: Colors.red),
+                            size: 40, color: Colors.red),
                       ),
                     ],
                   ),

@@ -73,6 +73,10 @@ class AddonService {
   final bool autoApply;
   final double autoApplyMinFare;
 
+  /// Admin grouping (e.g. "LOADING_UNLOADING"). Used to decide whether this
+  /// add-on needs the Load Assist follow-up questions — see needsLoadAssist.
+  final String category;
+
   AddonService({
     required this.id,
     required this.name,
@@ -86,7 +90,28 @@ class AddonService {
     this.applicableGoodsCategories = const [],
     this.autoApply = false,
     this.autoApplyMinFare = 0,
+    this.category = '',
   });
+
+  /// Does picking this add-on require the floor/lift/goods follow-up screen?
+  ///
+  /// This used to be a hardcoded set of three short codes (LDUNLD/LDING/UNLD)
+  /// typed by hand into the live catalog. The repo's own seed writes
+  /// LOADING/UNLOADING instead, so on any freshly seeded database NO add-on
+  /// matched and the entire Load Assist screen — floors, lift, goods type,
+  /// weight, receiver — was unreachable.
+  ///
+  /// Three independent signals now, so a rename cannot silently kill it:
+  ///  - PER_FLOOR pricing: if we bill per floor we must ask which floor.
+  ///  - a loading-ish category (the seed's "LOADING_UNLOADING").
+  ///  - the known code spellings, old and new.
+  bool get needsLoadAssist {
+    if (priceType.toUpperCase() == 'PER_FLOOR') return true;
+    final c = category.toUpperCase();
+    if (c.contains('LOAD')) return true;
+    const known = {'LDUNLD', 'LDING', 'UNLD', 'LOADING', 'UNLOADING'};
+    return known.contains(code.toUpperCase());
+  }
 
   factory AddonService.fromJson(Map<String, dynamic> json) {
     return AddonService(
@@ -105,6 +130,7 @@ class AddonService {
           const [],
       autoApply: json['autoApply'] == true,
       autoApplyMinFare: (json['autoApplyMinFare'] as num?)?.toDouble() ?? 0,
+      category: (json['category'] ?? '').toString(),
     );
   }
 }
@@ -254,6 +280,18 @@ class FareEstimate {
   final double gst;
   final double totalFare;
   final double discount;
+
+  /// The automatic admin-managed discount the server applied to this quote.
+  /// Separate from `discount` (promo/coupon): the server returns it as its own
+  /// `userDiscount` field and subtracts it from finalAmount. Nothing read it,
+  /// so a customer with an active discount campaign saw "Trip Fare ₹1000 …
+  /// Amount Payable ₹900" with no row accounting for the ₹100 — a summary that
+  /// does not add up reads as a bug or, worse, a hidden charge.
+  final double userDiscount;
+
+  /// Coins redeemed against this trip, likewise returned separately.
+  final double coinDiscount;
+
   final double finalFare;
   final double distanceKm;
   final double durationMin;
@@ -281,6 +319,8 @@ class FareEstimate {
     required this.gst,
     required this.totalFare,
     required this.discount,
+    this.userDiscount = 0,
+    this.coinDiscount = 0,
     required this.finalFare,
     required this.distanceKm,
     required this.durationMin,
@@ -311,6 +351,8 @@ class FareEstimate {
       totalFare: (fare['subtotal'] ?? fare['totalFare'] ?? json['totalFare'] ?? 0).toDouble(),
       discount:
           breakdownDiscount > 0 ? breakdownDiscount : topLevelDiscount,
+      userDiscount: (json['userDiscount'] ?? 0).toDouble(),
+      coinDiscount: (json['coinDiscount'] ?? 0).toDouble(),
       finalFare: (json['finalAmount'] ?? json['finalFare'] ?? fare['finalFare'] ?? 0).toDouble(),
       distanceKm: (json['distanceKm'] ?? fare['distanceKm'] ?? 0).toDouble(),
       durationMin: (json['durationMin'] ?? fare['durationMin'] ?? 0).toDouble(),

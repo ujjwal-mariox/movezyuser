@@ -128,15 +128,20 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   /// other — picking one clears the other two — via the special-cased toggle in
   /// _addonDesignCard, and selecting any of them reveals the Load Assist
   /// section below.
-  static const _loadingCodes = {'LDUNLD', 'LDING', 'UNLD'};
+  /// Which add-ons open the Load Assist follow-up. Delegated to
+  /// AddonService.needsLoadAssist, which keys off PER_FLOOR pricing / the
+  /// admin category / known code spellings — the old hardcoded three-code set
+  /// matched nothing on a freshly seeded database, leaving the whole Load
+  /// Assist screen (floors, lift, goods type, weight, receiver) unreachable.
+  bool _isLoadingAddon(AddonService a) => a.needsLoadAssist;
 
   /// Loading first, so the section leads with the service that has follow-up
   /// questions; the extras (Packing, Insurance, Receiving Copy) follow.
   List<AddonService> get _extraAddons {
     final loading =
-        _addons.where((a) => _loadingCodes.contains(a.code)).toList();
+        _addons.where(_isLoadingAddon).toList();
     final rest =
-        _addons.where((a) => !_loadingCodes.contains(a.code)).toList();
+        _addons.where((a) => !_isLoadingAddon(a)).toList();
     return [...loading, ...rest];
   }
 
@@ -429,7 +434,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
     var changed = false;
     for (final a in _addons) {
       if (!a.autoApply) continue;
-      if (_loadingCodes.contains(a.code)) continue;
+      if (_isLoadingAddon(a)) continue;
       if (fareNow < a.autoApplyMinFare) continue;
       if (_selectedAddonIds.contains(a.id)) continue;
       _selectedAddonIds.add(a.id);
@@ -1440,7 +1445,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                 ),
               ),
               const SizedBox(width: 4),
-              Icon(Icons.report_gmailerrorred, size: 25, color: HexColor('#FF6200')),
+              Icon(Icons.report_gmailerrorred, size: 24, color: HexColor('#FF6200')),
             ],
           ),
         ],
@@ -2061,6 +2066,24 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                 ],
               ),
             ],
+            // The automatic admin discount and redeemed coins are separate
+            // server fields; without these rows the summary silently failed to
+            // reconcile (Trip Fare ₹1000 → Amount Payable ₹900, nothing in
+            // between), which reads as a hidden charge.
+            if (_fare!.userDiscount > 0) ...[
+              const SizedBox(height: 8),
+              Image.asset("assets/dotted_line.png", height: 1),
+              const SizedBox(height: 8),
+              _fareRow('Discount applied', '-${_money(_fare!.userDiscount)}',
+                  color: Colors.green.shade700),
+            ],
+            if (_fare!.coinDiscount > 0) ...[
+              const SizedBox(height: 8),
+              Image.asset("assets/dotted_line.png", height: 1),
+              const SizedBox(height: 8),
+              _fareRow('Movezy Coins', '-${_money(_fare!.coinDiscount)}',
+                  color: Colors.green.shade700),
+            ],
             const SizedBox(height: 8),
             Image.asset("assets/dotted_line.png", height: 1),
             const SizedBox(height: 8),
@@ -2097,6 +2120,12 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
       if (fare.gst > 0) _fareRow('GST', '₹${fare.gst.toStringAsFixed(2)}'),
       if (fare.discount > 0)
         _fareRow('Discount', '-₹${fare.discount.toStringAsFixed(2)}',
+            color: Colors.green),
+      if (fare.userDiscount > 0)
+        _fareRow('Discount applied', '-₹${fare.userDiscount.toStringAsFixed(2)}',
+            color: Colors.green),
+      if (fare.coinDiscount > 0)
+        _fareRow('Movezy Coins', '-₹${fare.coinDiscount.toStringAsFixed(2)}',
             color: Colors.green),
     ];
 
@@ -2373,7 +2402,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
           hint: Text('Select floor',
               style: GoogleFonts.poppins(
                   fontSize: 13, color: Colors.grey.shade600)),
-          icon: const Icon(Icons.keyboard_arrow_down, size: 26),
+          icon: const Icon(Icons.keyboard_arrow_down, size: 24),
           padding: const EdgeInsets.symmetric(vertical: 12),
           items: [
             for (int i = 1; i <= 20; i++)
@@ -3084,7 +3113,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
           GestureDetector(
             onTap: () {
               setState(() {
-                if (_loadingCodes.contains(addon.code)) {
+                if (_isLoadingAddon(addon)) {
                   // The three loading services are one choice, not a stack:
                   // route through _serviceCode + _syncServiceAddon so exactly
                   // one is ever selected. Opting IN opens the Load Assist

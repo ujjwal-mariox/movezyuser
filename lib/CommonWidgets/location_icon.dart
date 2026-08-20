@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 
-/// Shared icon sizing scale.
+/// The app's icon size ladder.
 ///
 /// Sizes used to be hand-written at every call site, so the same glyph in the
-/// same role rendered at 12/18/20/22/24/25/32 depending on the screen. Use
-/// these instead of raw numbers for new work.
+/// same role rendered at 12/13/14/15 or 17/18/19/21 depending on the screen —
+/// 30 distinct values across the app, several of them 1px apart. Every
+/// explicit `Icon(size:)` now sits on this ladder; use these constants for new
+/// work instead of a raw number.
+///
+/// (Sizes below 12 are deliberately off the ladder: route bullets and status
+/// dots at 6-9px are micro-glyphs, and rounding them up would double them.)
 abstract final class AppIconSize {
   /// Inline with body text (trailing chevrons, small affordances).
+  static const double xs = 12;
   static const double sm = 16;
 
   /// Default for list rows, app-bar actions, address rows.
@@ -14,9 +20,17 @@ abstract final class AppIconSize {
 
   /// Pickup/drop location markers and primary row icons.
   static const double lg = 22;
+  static const double xxl = 24;
 
   /// Feature/section headers.
   static const double xl = 28;
+  static const double headerLg = 32;
+
+  /// Empty states and hero illustrations.
+  static const double display = 40;
+  static const double displayLg = 48;
+  static const double hero = 56;
+  static const double heroLg = 64;
 }
 
 /// The pickup / drop marker pair, from the design assets.
