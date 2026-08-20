@@ -295,6 +295,25 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // System back steps OUT of an open category before leaving the screen —
+    // same as the on-screen "All categories" button. Without this, the
+    // hardware/gesture back popped the whole Help & Support screen while a
+    // category was open, which read as "I can't get back to the main menu".
+    return PopScope(
+      canPop: _selectedCategory == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        setState(() {
+          _selectedCategory = null;
+          _selectedQuestion = null;
+          _confirmation = null;
+        });
+      },
+      child: _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
       backgroundColor: HexColor("#FFEDE2"),
       body: SingleChildScrollView(

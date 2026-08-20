@@ -210,7 +210,10 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
           ),
           Column(
             children: [
-              const SizedBox(height: 30),
+              // Compact hero (client: banner reduced so the code box and the
+              // WhatsApp button are reachable in one view). Was 30/18/180 —
+              // that pushed the share actions below the fold on ~800pt phones.
+              const SizedBox(height: 14),
               Center(
                 child: Container(
                   margin: const EdgeInsets.only(left: 30, right: 30),
@@ -224,10 +227,10 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 10),
               Image.asset(
                 "assets/mobile_icon.png",
-                height: 180,
+                height: 120,
                 fit: BoxFit.contain,
               ),
               const SizedBox(height: 4),
@@ -269,7 +272,7 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 30),
+              const SizedBox(height: 16),
 
               // White sheet
               SizedBox(

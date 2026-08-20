@@ -793,16 +793,10 @@ class _SearchScreenState extends State<SearchScreen> {
                     Row(
                       children: [
                         SizedBox(width: 20,),
-                        Container(
-                          height: 45,
-                          width: 45,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          padding: EdgeInsets.all(6),
-                          child: const LocationIcon.pickup(),
-                        ),
+                        // LocationTile centers with loose constraints — the
+                        // old Container's tight 45px minus its 6px padding
+                        // forced the "22px" glyph to actually render at 33px.
+                        const LocationTile(child: LocationIcon.pickup()),
 
                         Expanded(child: Container(
                             margin: EdgeInsets.only(left: 10, right: 15),
@@ -850,16 +844,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     Row(
                       children: [
                         SizedBox(width: 20,),
-                        Container(
-                          height: 45,
-                          width: 45,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          padding: EdgeInsets.all(6),
-                          child: const LocationIcon.drop(),
-                        ),
+                        const LocationTile(child: LocationIcon.drop()),
 
                         Expanded(child: GestureDetector(
                           onTap: () => _openMapPicker(isPickup: false),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
+import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/home_page_model.dart';
 import 'package:movezy_user_app/Screens/ReviewBookingScreen/review_booking_screen.dart';
@@ -299,7 +300,7 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
           ),
           const SizedBox(height: 14),
           _addressRow(
-            asset: 'assets/pic_up_location.png',
+            isPickup: true,
             text: widget.bookingData.pickupAddress ?? 'Pickup location',
             trailing: Icon(Icons.gps_fixed,
                 size: 20, color: AppColors.appColor),
@@ -315,7 +316,7 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
             _dashedConnector(),
           ],
           _addressRow(
-            asset: 'assets/drop_up_location.png',
+            isPickup: false,
             text: widget.bookingData.dropAddress ?? 'Drop location',
           ),
           const SizedBox(height: 12),
@@ -347,7 +348,7 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
     Color? iconColor,
     // The design's location pair renders from assets; Material glyphs remain
     // for intermediate stops, which have no dedicated artwork.
-    String? asset,
+    bool? isPickup,
     required String text,
     Widget? trailing,
   }) {
@@ -355,19 +356,15 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
       onTap: () => Navigator.pop(context),
       child: Row(
         children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: asset != null
-                ? Padding(
-                    padding: const EdgeInsets.all(11),
-                    child: Image.asset(asset, width: 22, height: 22),
-                  )
-                : Icon(icon, color: iconColor, size: 22),
+          // LocationTile centers with LOOSE constraints, so the glyph really
+          // renders at AppIconSize.lg. The old Container+Padding here forced
+          // the pickup/drop image to 24px (46 − 2×11) and — with no padding on
+          // the Icon branch — blew the intermediate-stop glyph up to the full
+          // 46px tile. Same trap the client reported as "completely off-sized".
+          LocationTile(
+            child: isPickup != null
+                ? LocationIcon(isPickup: isPickup)
+                : Icon(icon, color: iconColor, size: AppIconSize.lg),
           ),
           const SizedBox(width: 10),
           // Expanded so a long address ellipsizes instead of overflowing the

@@ -781,14 +781,18 @@ Widget _header(BuildContext context) {
         child: Column(
           children: [
             Container(
-              padding: EdgeInsets.all(5),
+              // alignment => loose constraints, so the declared size below is
+              // real. The tight 45px box used to override `width: 35` and the
+              // glyph rendered at 35px anyway only by the accident of padding.
+              alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: HexColor("#FFEDE2"),
                 borderRadius: BorderRadius.circular(30),
               ),
               height: 45,
               width: 45,
-              child: Image.asset(icon, width: 35,color: Colors.black),
+              child: Image.asset(icon,
+                  width: 24, height: 24, fit: BoxFit.contain, color: Colors.black),
             ),
             const SizedBox(height: 8),
             Text(

@@ -50,3 +50,37 @@ class LocationIcon extends StatelessWidget {
     );
   }
 }
+
+/// The white rounded tile that holds a location glyph beside an address input.
+///
+/// Exists because of a constraint trap that made "the same 22px icon" render
+/// at three different sizes: `Container(width: 45/46, height: ...)` passes
+/// TIGHT constraints to its child, and a tight constraint overrides whatever
+/// width/height the child declares. So SearchScreen's icon really rendered at
+/// 33px (45 − 2×6 padding), VehicleSelection's at 24px (46 − 2×11), and an
+/// intermediate-stop `Icon` with no padding at all filled the whole 46px tile.
+/// The declared 22 was dead code everywhere.
+///
+/// `alignment:` wraps the child in an `Align`, which passes LOOSE constraints
+/// — the child's own size finally wins. Every address-input tile must render
+/// through this widget so no call site can reintroduce the override.
+class LocationTile extends StatelessWidget {
+  final Widget child;
+  final double size;
+
+  const LocationTile({super.key, required this.child, this.size = 45});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: child,
+    );
+  }
+}
