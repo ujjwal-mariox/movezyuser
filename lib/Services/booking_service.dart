@@ -489,6 +489,9 @@ class BookingService {
     /// both the detour distance and the per-stop charge, so the fare jumps on
     /// the next screen.
     List<Map<String, dynamic>>? stops,
+    /// The vehicle chosen on the home screen — the server pins it to the top
+    /// of the list as recommended.
+    String? preferredVehicleTypeId,
   }) async {
     final body = {
       'pickup': pickup,
@@ -496,6 +499,8 @@ class BookingService {
       if (stops != null && stops.isNotEmpty) 'stops': stops,
       if (serviceType != null) 'serviceType': serviceType,
       if (goodsTypeId != null) 'goodsTypeId': goodsTypeId,
+      if (preferredVehicleTypeId != null && preferredVehicleTypeId.isNotEmpty)
+        'preferredVehicleTypeId': preferredVehicleTypeId,
     };
 
     final res = await http.post(

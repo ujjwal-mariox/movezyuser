@@ -16,6 +16,10 @@ class BookingData {
   /// Drop address text
   String? dropAddress;
 
+  /// Who receives the goods at the drop (asked with the locations).
+  String? receiverName;
+  String? receiverPhone;
+
   /// Pickup coordinates
   double? pickupLat;
   double? pickupLng;
@@ -73,6 +77,8 @@ class BookingData {
     this.serviceType,
     this.pickupAddress,
     this.dropAddress,
+    this.receiverName,
+    this.receiverPhone,
     this.pickupLat,
     this.pickupLng,
     this.pickupCity,
@@ -101,6 +107,8 @@ class BookingData {
     String? serviceType,
     String? pickupAddress,
     String? dropAddress,
+    String? receiverName,
+    String? receiverPhone,
     double? pickupLat,
     double? pickupLng,
     String? pickupCity,
@@ -127,6 +135,8 @@ class BookingData {
       pickupLat: pickupLat ?? this.pickupLat,
       pickupLng: pickupLng ?? this.pickupLng,
       pickupCity: pickupCity ?? this.pickupCity,
+      receiverName: receiverName ?? this.receiverName,
+      receiverPhone: receiverPhone ?? this.receiverPhone,
       dropLat: dropLat ?? this.dropLat,
       stops: stops ?? this.stops,
       dropLng: dropLng ?? this.dropLng,

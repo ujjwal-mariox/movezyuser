@@ -164,6 +164,23 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
       _joinTrackingRoom();
     });
 
+    // A driver message while the chat is closed: nudge with a way in.
+    _socket!.on('chat:notify', (data) {
+      if (!mounted) return;
+      final preview = (data is Map ? data['preview'] : null)?.toString() ?? '';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(preview.isEmpty ? 'New message from your driver' : 'Driver: $preview'),
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'Open',
+          onPressed: () => pushTo(
+            context,
+            ChatScreen(bookingId: widget.bookingId, driverName: _driverName),
+          ),
+        ),
+      ));
+    });
+
     _socket!.on('driver:location', (data) {
       if (data is! Map) return;
       final lat = data['lat'] ?? data['latitude'];
@@ -1357,7 +1374,9 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
                               ),
                               // No number on the booking means nothing to dial,
                               // so no button — a dead one is worse than none.
-                              if (_driverPhone.isNotEmpty) ...[
+                              // Always offered once a driver is assigned: the server places
+                              // the call (masked), so no number is needed on this device.
+                              if (_hasDriver) ...[
                                 const SizedBox(width: 12),
                                 _driverActionButton(
                                   // Same as chat: a generic Icons.call_outlined

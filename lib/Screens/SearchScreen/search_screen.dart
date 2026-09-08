@@ -33,6 +33,10 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _pickupController = TextEditingController();
   final TextEditingController _dropController = TextEditingController();
+  // Receiver at the drop — asked here with the locations (client feedback),
+  // carried to Review, where it can still be edited.
+  final TextEditingController _receiverNameController = TextEditingController();
+  final TextEditingController _receiverPhoneController = TextEditingController();
 
   double? _pickupLat, _pickupLng;
 
@@ -79,6 +83,8 @@ class _SearchScreenState extends State<SearchScreen> {
       _pickupLat = widget.bookingData!.pickupLat;
       _pickupLng = widget.bookingData!.pickupLng;
       _pickupCity = widget.bookingData!.pickupCity;
+      _receiverNameController.text = widget.bookingData!.receiverName ?? '';
+      _receiverPhoneController.text = widget.bookingData!.receiverPhone ?? '';
     }
     if (widget.bookingData?.dropAddress != null) {
       _dropController.text = widget.bookingData!.dropAddress!;
@@ -255,6 +261,8 @@ class _SearchScreenState extends State<SearchScreen> {
   void dispose() {
     _pickupController.dispose();
     _dropController.dispose();
+    _receiverNameController.dispose();
+    _receiverPhoneController.dispose();
     for (final s in _stops) {
       s.controller.dispose();
     }
@@ -678,6 +686,15 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
+    // Receiver mobile: optional, but if given it must be dialable.
+    final receiverPhone = _receiverPhoneController.text.replaceAll(RegExp(r'\D'), '');
+    if (receiverPhone.isNotEmpty && receiverPhone.length != 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Enter the receiver's 10-digit mobile number")),
+      );
+      return;
+    }
+
     // Try to geocode addresses if we don't have coords
     await _geocodeAddresses();
 
@@ -702,6 +719,8 @@ class _SearchScreenState extends State<SearchScreen> {
       pickupLat: _pickupLat,
       pickupLng: _pickupLng,
       pickupCity: _pickupCity,
+      receiverName: _receiverNameController.text.trim(),
+      receiverPhone: receiverPhone,
       dropLat: _dropLat,
       dropLng: _dropLng,
       stops: _stops.where((s) => s.hasCoords).map((s) => s.toJson()).toList(),
@@ -891,6 +910,61 @@ class _SearchScreenState extends State<SearchScreen> {
                           ),
                         ),)
                       ],
+                    ),
+
+                    // ── Receiver at the drop ──
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 15, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Who receives it at the drop?',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 2),
+                          Text("Name and mobile of the person at the drop address — we'll message them when it's on the way.",
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 5,
+                                child: Container(
+                                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  child: TextField(
+                                    controller: _receiverNameController,
+                                    textCapitalization: TextCapitalization.words,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Receiver name',
+                                      border: InputBorder.none,
+                                      hintStyle: TextStyle(fontSize: 14, color: Colors.black54),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 4,
+                                child: Container(
+                                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  child: TextField(
+                                    controller: _receiverPhoneController,
+                                    keyboardType: TextInputType.phone,
+                                    maxLength: 10,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Mobile',
+                                      counterText: '',
+                                      border: InputBorder.none,
+                                      hintStyle: TextStyle(fontSize: 14, color: Colors.black54),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
 
                     // ── Stops between pickup and drop ──

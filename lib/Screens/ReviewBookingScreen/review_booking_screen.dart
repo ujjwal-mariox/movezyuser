@@ -191,6 +191,8 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   TimeSlotOption? _selectedSlot;
   bool _loadingSlots = false;
   bool _showAllSlots = false;
+  // Slots are only shown when the customer opts in; unchecked = pick up now.
+  bool _scheduleLater = false;
   // Consignee (who receives the parcel at the drop). Optional: when a phone is
   // given, the backend SMSs them at pickup — they have no app account.
   final TextEditingController _receiverNameController = TextEditingController();
@@ -214,6 +216,9 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   void initState() {
     super.initState();
     _goodsCategory = widget.bookingData.goodsCategory;
+    // Receiver captured with the locations; still editable here.
+    _receiverNameController.text = widget.bookingData.receiverName ?? '';
+    _receiverPhoneController.text = widget.bookingData.receiverPhone ?? '';
     // The goods type chosen on its own screen already answers
     // Business-vs-Personal (every GoodsType carries a category), so prefill
     // the "Select type of goods" block instead of asking again from scratch.
@@ -1783,9 +1788,35 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
         children: [
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text("Select pickup time",
+            child: Text("Pickup time",
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
           ),
+          // Opt-in: most bookings are "now"; the date strip and slots only
+          // appear when the customer asks to schedule.
+          CheckboxListTile(
+            value: _scheduleLater,
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            controlAffinity: ListTileControlAffinity.leading,
+            activeColor: HexColor("#FF6200"),
+            title: const Text('Schedule pickup for later',
+                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+            subtitle: Text(
+              _scheduleLater
+                  ? 'Pick a date and a time slot below'
+                  : 'Unchecked: a driver is assigned right away (about 30 mins)',
+              style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600),
+            ),
+            onChanged: (v) => setState(() {
+              _scheduleLater = v ?? false;
+              if (!_scheduleLater) {
+                _selectedSlot = null;
+                _selectedDate = DateTime.now();
+                _showAllSlots = false;
+              }
+            }),
+          ),
+          if (_scheduleLater) ...[
           const SizedBox(height: 4),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1927,6 +1958,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                 style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600),
               ),
             ),
+          ],
         ],
       ),
     );

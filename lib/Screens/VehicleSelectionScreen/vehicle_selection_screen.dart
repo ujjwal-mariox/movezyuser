@@ -74,6 +74,7 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
         // the figure the customer ends up paying.
         stops: widget.bookingData.stops,
         serviceType: widget.bookingData.serviceType,
+        preferredVehicleTypeId: widget.bookingData.selectedVehicle?.id,
         goodsTypeId: widget.bookingData.goodsTypeId,
       );
 
@@ -145,9 +146,21 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Separate recommended from others
-    final recommended = _options.where((o) => o.isRecommended).toList();
-    final others = _options.where((o) => !o.isRecommended).toList();
+    // Recommended: the vehicle the customer picked on the home screen first,
+    // then the server's best match; everything else under Others.
+    final priorId = widget.bookingData.selectedVehicle?.id;
+    VehicleOption? prior;
+    for (final o in _options) {
+      if (priorId != null && o.vehicleTypeId == priorId) {
+        prior = o;
+        break;
+      }
+    }
+    final recommended = <VehicleOption>[
+      if (prior != null) prior,
+      ..._options.where((o) => o.isRecommended && o.vehicleTypeId != priorId),
+    ];
+    final others = _options.where((o) => !recommended.contains(o)).toList();
 
     return Scaffold(
       backgroundColor: Colors.white,
