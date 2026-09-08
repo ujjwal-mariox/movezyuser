@@ -20,6 +20,10 @@ class BookingData {
   double? pickupLat;
   double? pickupLng;
 
+  /// City name of the pickup (from the device geocoder / saved address).
+  /// Lets the server apply the city's rate card without a reverse lookup.
+  String? pickupCity;
+
   /// Drop coordinates
   double? dropLat;
   double? dropLng;
@@ -71,6 +75,7 @@ class BookingData {
     this.dropAddress,
     this.pickupLat,
     this.pickupLng,
+    this.pickupCity,
     this.dropLat,
     this.dropLng,
     this.stops = const [],
@@ -98,6 +103,7 @@ class BookingData {
     String? dropAddress,
     double? pickupLat,
     double? pickupLng,
+    String? pickupCity,
     double? dropLat,
     double? dropLng,
     List<Map<String, dynamic>>? stops,
@@ -120,6 +126,7 @@ class BookingData {
       dropAddress: dropAddress ?? this.dropAddress,
       pickupLat: pickupLat ?? this.pickupLat,
       pickupLng: pickupLng ?? this.pickupLng,
+      pickupCity: pickupCity ?? this.pickupCity,
       dropLat: dropLat ?? this.dropLat,
       stops: stops ?? this.stops,
       dropLng: dropLng ?? this.dropLng,

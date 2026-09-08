@@ -35,6 +35,10 @@ class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _dropController = TextEditingController();
 
   double? _pickupLat, _pickupLng;
+
+  /// Pickup city for city-specific pricing; null when unknown (server falls back to a reverse lookup).
+
+  String? _pickupCity;
   double? _dropLat, _dropLng;
 
   /// Intermediate stops between pickup and drop ("+ ADD STOP" in the design).
@@ -74,6 +78,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _pickupController.text = widget.bookingData!.pickupAddress!;
       _pickupLat = widget.bookingData!.pickupLat;
       _pickupLng = widget.bookingData!.pickupLng;
+      _pickupCity = widget.bookingData!.pickupCity;
     }
     if (widget.bookingData?.dropAddress != null) {
       _dropController.text = widget.bookingData!.dropAddress!;
@@ -317,6 +322,7 @@ class _SearchScreenState extends State<SearchScreen> {
           _pickupController.text = result.address;
           _pickupLat = result.lat;
           _pickupLng = result.lng;
+          _pickupCity = result.city;
         } else {
           _dropController.text = result.address;
           _dropLat = result.lat;
@@ -376,6 +382,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _pickupController.text = label;
         _pickupLat = selected.latitude;
         _pickupLng = selected.longitude;
+        _pickupCity = selected.city.trim().isEmpty ? null : selected.city.trim();
       } else {
         _dropController.text = label;
         _dropLat = selected.latitude;
@@ -418,10 +425,12 @@ class _SearchScreenState extends State<SearchScreen> {
       // Reverse geocode to get address text
       final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
       String address = 'Current Location';
+      String? city;
       if (placemarks.isNotEmpty) {
         final p = placemarks.first;
         final parts = [p.name, p.subLocality, p.locality, p.administrativeArea].where((s) => s != null && s.isNotEmpty);
         address = parts.join(', ');
+        city = (p.locality ?? '').isNotEmpty ? p.locality : p.subAdministrativeArea;
       }
 
       if (mounted) {
@@ -429,6 +438,7 @@ class _SearchScreenState extends State<SearchScreen> {
           _pickupController.text = address;
           _pickupLat = pos.latitude;
           _pickupLng = pos.longitude;
+          _pickupCity = city;
         });
         _refreshPreviewRoute();
       }
@@ -455,6 +465,7 @@ class _SearchScreenState extends State<SearchScreen> {
         if (locations.isNotEmpty) {
           _pickupLat = locations.first.latitude;
           _pickupLng = locations.first.longitude;
+          _pickupCity = null;
         }
       } catch (_) {
         // Geocoding failed — set null, fallback will be used
@@ -690,6 +701,7 @@ class _SearchScreenState extends State<SearchScreen> {
       dropAddress: drop,
       pickupLat: _pickupLat,
       pickupLng: _pickupLng,
+      pickupCity: _pickupCity,
       dropLat: _dropLat,
       dropLng: _dropLng,
       stops: _stops.where((s) => s.hasCoords).map((s) => s.toJson()).toList(),

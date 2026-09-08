@@ -349,6 +349,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
       'address': widget.bookingData.pickupAddress ?? 'Pickup Location',
       'lat': widget.bookingData.pickupLat,
       'lng': widget.bookingData.pickupLng,
+      if (widget.bookingData.pickupCity != null) 'city': widget.bookingData.pickupCity,
     };
     final drop = {
       'address': widget.bookingData.dropAddress ?? 'Drop Location',
@@ -687,6 +688,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
         'address': widget.bookingData.pickupAddress ?? 'Pickup Location',
         'lat': pLat,
         'lng': pLng,
+        if (widget.bookingData.pickupCity != null) 'city': widget.bookingData.pickupCity,
       };
       final drop = {
         'address': widget.bookingData.dropAddress ?? 'Drop Location',

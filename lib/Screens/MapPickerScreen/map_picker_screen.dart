@@ -15,7 +15,10 @@ class MapPickerResult {
   final double lat;
   final double lng;
 
-  MapPickerResult({required this.address, required this.lat, required this.lng});
+  /// Locality from the reverse geocode; null when only coordinates were resolved.
+  final String? city;
+
+  MapPickerResult({required this.address, required this.lat, required this.lng, this.city});
 }
 
 /// Full-screen map picker with search bar, pin-drop, and confirm button.
@@ -50,6 +53,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   LatLng _selectedLocation = const LatLng(28.6139, 77.2090); // Default Delhi
   String _selectedAddress = 'Move the map to select location';
+  String? _selectedCity;
   bool _isLoadingAddress = false;
   bool _isSearching = false;
   bool _showSearchResults = false;
@@ -97,6 +101,9 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
         ].where((s) => s != null && s.isNotEmpty).toList();
         setState(() {
           _selectedAddress = parts.join(', ');
+          _selectedCity = (p.locality ?? '').isNotEmpty
+              ? p.locality
+              : ((p.subAdministrativeArea ?? '').isNotEmpty ? p.subAdministrativeArea : null);
           _selectedLocation = pos;
         });
       }
@@ -236,6 +243,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
         address: address,
         lat: _selectedLocation.latitude,
         lng: _selectedLocation.longitude,
+        city: _addressResolved ? _selectedCity : null,
       ),
     );
   }

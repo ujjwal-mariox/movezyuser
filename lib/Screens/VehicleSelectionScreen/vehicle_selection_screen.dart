@@ -64,7 +64,11 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
       }
 
       final options = await BookingService.getVehicleOptions(
-        pickup: {'lat': pLat, 'lng': pLng},
+        pickup: {
+          'lat': pLat,
+          'lng': pLng,
+          if (widget.bookingData.pickupCity != null) 'city': widget.bookingData.pickupCity,
+        },
         drop: {'lat': dLat, 'lng': dLng},
         // Same stops Review Booking prices with, so the figure on the card is
         // the figure the customer ends up paying.
