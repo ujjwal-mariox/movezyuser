@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:movezy_user_app/Screens/ChatScreen/quick_replies_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -51,6 +52,10 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     });
+  }
+
+  void _sendQuick(String text) {
+    _chat.sendMessage(text);
   }
 
   void _send() {
@@ -164,6 +169,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     },
                   ),
           ),
+          QuickRepliesBar(onSend: _sendQuick),
           _buildInput(),
         ],
       ),

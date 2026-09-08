@@ -67,6 +67,10 @@ class ApiUrls {
   static String socketUrl = _origin;
   static String chatHistoryUrl(String bookingId) => "$baseUrlApi/chat/$bookingId/history";
   static String chatUploadImageUrl(String bookingId) => "$baseUrlApi/chat/$bookingId/upload-image";
+  /// Predefined chat lines (admin-managed).
+  static String chatQuickRepliesUrl = "$baseUrlApi/chat/quick-replies";
+  /// Masked call to the driver — the server bridges it; the number never reaches the app.
+  static String bookingCallUrl(String bookingId) => "$baseUrlApi/bookings/$bookingId/call";
 
   // ─── WALLET & PAYMENTS ───
   static String walletUrl = "$baseUrlApi/wallet";

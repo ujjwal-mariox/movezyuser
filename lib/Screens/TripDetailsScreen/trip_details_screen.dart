@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:movezy_user_app/Services/masked_call_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:hexcolor/hexcolor.dart';
@@ -714,27 +715,10 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
           .contains(_status) &&
       _stops.length < 3;
 
-  /// Dial the assigned driver.
-  Future<void> _callDriver() async {
-    if (_driverPhone.isEmpty) return;
-    try {
-      // No canLaunchUrl gate: on Android 11+ it answers false unless the app
-      // declares a `tel` <queries> intent, which would hide a dialer that
-      // actually opens. launchUrl reports the real outcome instead.
-      final opened = await launchUrl(Uri(scheme: 'tel', path: _driverPhone));
-      if (!opened && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open the dialer. Driver: $_driverPhone')),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open the dialer. Driver: $_driverPhone')),
-        );
-      }
-    }
-  }
+  /// Call the assigned driver through the server. The driver's number is
+  /// never on this device (the payload carries it masked as XXXXXX1234);
+  /// both sides see only the Movezy number.
+  Future<void> _callDriver() => MaskedCallService.callDriver(context, widget.bookingId);
 
   /// Add an intermediate stop to the trip that is already running.
   ///
