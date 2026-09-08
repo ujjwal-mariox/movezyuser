@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
+import 'package:movezy_user_app/CommonWidgets/vehicle_dimension_figure.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/home_page_model.dart';
 import 'package:movezy_user_app/Screens/ReviewBookingScreen/review_booking_screen.dart';
@@ -87,6 +88,10 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
         setState(() {
           _options = options;
           _isLoading = false;
+          if (options.isEmpty) {
+            // Every vehicle type has a max distance; none covers this trip.
+            _error = 'No vehicle type can cover this trip distance. Try a shorter trip or contact support.';
+          }
           // Preselect what the customer already chose (a home-screen tile),
           // falling back to the recommended one. This screen now ALWAYS shows
           // — the flow used to skip it entirely when a vehicle was preset, so
@@ -482,9 +487,14 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
         ),
         child: Row(
           children: [
-            // Vehicle image
-            _vehicleImage(option),
-            const SizedBox(width: 14),
+            // Picture with its length above and height beside it — the
+            // marketplace way of showing what fits.
+            VehicleDimensionFigure(
+              imageUrl: option.image ?? option.icon,
+              lengthFt: option.lengthFt,
+              heightFt: option.heightFt,
+            ),
+            const SizedBox(width: 12),
 
             // Vehicle info
             Expanded(
@@ -519,10 +529,6 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                           fontSize: 12.5, color: Colors.grey.shade600),
                       children: [
                         TextSpan(text: option.capacityLabel),
-                        // Dimensions, when the catalog has them (client spec:
-                        // capacity AND dimensions on every option).
-                        if (option.dimensionsLabel.isNotEmpty)
-                          TextSpan(text: ' · ${option.dimensionsLabel}'),
                         if (option.durationLabel.isNotEmpty &&
                             option.estimatedDuration > 0) ...[
                           const TextSpan(text: '. '),
@@ -541,6 +547,22 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 6),
+                  GestureDetector(
+                    onTap: () => _showVehicleDetails(option),
+                    behavior: HitTestBehavior.opaque,
+                    child: Text(
+                      'Know more',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF2563EB),
+                        decoration: TextDecoration.underline,
+                        decorationStyle: TextDecorationStyle.dotted,
+                        decorationColor: const Color(0xFF2563EB),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -556,6 +578,8 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  _capacityBadge(option),
+                  const SizedBox(height: 6),
                   Text(
                     "₹ ${option.estimatedFare.toInt()}",
                     style: TextStyle(
@@ -574,12 +598,134 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                 ],
               )
             else
-              Text(
-                "₹ ${hasEstimatedFare ? option.estimatedFare.toInt() : option.baseFare.toInt()}",
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _capacityBadge(option),
+                  const SizedBox(height: 6),
+                  Text(
+                    "₹ ${hasEstimatedFare ? option.estimatedFare.toInt() : option.baseFare.toInt()}",
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  ),
+                ],
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// "2500 kg" pill, as on marketplace listings.
+  Widget _capacityBadge(VehicleOption option) {
+    if (option.maxWeightKg <= 0) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F0FE),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.shopping_bag, size: 13, color: Color(0xFF1F2937)),
+          const SizedBox(width: 4),
+          Text(
+            '${option.maxWeightKg.toInt()} kg',
+            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Color(0xFF1F2937)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Everything about the vehicle: size, capacity, what it suits.
+  void _showVehicleDetails(VehicleOption option) {
+    String ft(double v) => VehicleDimensionFigure.fmt(v);
+    final dims = <String>[
+      if (option.lengthFt > 0) 'Length ${ft(option.lengthFt)} ft',
+      if (option.breadthFt > 0) 'Width ${ft(option.breadthFt)} ft',
+      if (option.heightFt > 0) 'Height ${ft(option.heightFt)} ft',
+    ];
+    final service = option.allowIntraCity && option.allowInterCity
+        ? 'Within city & outstation'
+        : option.allowIntraCity
+            ? 'Within city'
+            : 'Outstation';
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  VehicleDimensionFigure(
+                    imageUrl: option.image ?? option.icon,
+                    lengthFt: option.lengthFt,
+                    heightFt: option.heightFt,
+                    width: 150,
+                    height: 108,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(option.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 6),
+                        _capacityBadge(option),
+                      ],
+                    ),
+                  ),
+                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+                ],
+              ),
+              const SizedBox(height: 14),
+              if (dims.isNotEmpty) ...[
+                const Text('Load area', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text(dims.join(' · '), style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+                const SizedBox(height: 12),
+              ],
+              const Text('Capacity', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Text(
+                option.maxWeightKg > 0 ? 'Up to ${option.maxWeightKg.toInt()} kg' : 'Not specified',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 12),
+              const Text('Suitable for', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Text(service, style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+              if ((option.description ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(option.description!.trim(), style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35)),
+              ],
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    final idx = _options.indexOf(option);
+                    if (idx >= 0) setState(() => _selectedIndex = idx);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.appColor,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Select this vehicle', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
