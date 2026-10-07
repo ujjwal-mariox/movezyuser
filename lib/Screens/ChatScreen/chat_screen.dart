@@ -35,6 +35,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _chat.messages.addListener(_onMessages);
     _chat.loadHistory().then((_) => _scrollToBottom());
     _chat.connect();
+    _chat.error.addListener(_onChatError);
   }
 
   void _onMessages() {
@@ -58,11 +59,14 @@ class _ChatScreenState extends State<ChatScreen> {
     _chat.sendMessage(text);
   }
 
-  void _send() {
+  Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
-    _chat.sendMessage(text);
-    _controller.clear();
+    if (await _chat.sendMessage(text) &&
+        mounted &&
+        _controller.text.trim() == text) {
+      _controller.clear();
+    }
   }
 
   Future<void> _pickAndSendImage() async {
@@ -74,9 +78,17 @@ class _ChatScreenState extends State<ChatScreen> {
     await _chat.sendImage(File(picked.path));
   }
 
+  void _onChatError() {
+    if (!mounted || _chat.error.value == null) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(_chat.error.value!)));
+  }
+
   @override
   void dispose() {
     _chat.messages.removeListener(_onMessages);
+    _chat.error.removeListener(_onChatError);
     _chat.dispose();
     _controller.dispose();
     _scrollController.dispose();
@@ -85,11 +97,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      statusBarBrightness: Brightness.dark,
-    ));
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.dark,
+      ),
+    );
 
     final messages = _chat.messages.value;
 
@@ -112,7 +126,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       width: 40,
                       height: 35,
                       alignment: Alignment.center,
-                      child: const Icon(Icons.arrow_back_ios, color: Colors.white),
+                      child: const Icon(
+                        Icons.arrow_back_ios,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                   Expanded(
@@ -236,8 +253,9 @@ class _ChatBubble extends StatelessWidget {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
-        crossAxisAlignment:
-            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isMe
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Container(
             padding: const EdgeInsets.all(12),
@@ -250,7 +268,9 @@ class _ChatBubble extends StatelessWidget {
             child: Text(
               text,
               style: TextStyle(
-                  fontSize: 15, color: isMe ? Colors.white : Colors.black),
+                fontSize: 15,
+                color: isMe ? Colors.white : Colors.black,
+              ),
             ),
           ),
           const SizedBox(height: 4),

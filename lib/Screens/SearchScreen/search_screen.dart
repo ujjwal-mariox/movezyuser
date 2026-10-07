@@ -1,4 +1,8 @@
 import 'dart:convert';
+import 'package:movezy_user_app/CommonWidgets/vehicle_availability_notice.dart';
+import 'package:movezy_user_app/Services/booking_vehicle_options.dart';
+import 'package:movezy_user_app/Services/booking_service.dart';
+import 'package:movezy_user_app/Services/vehicle_availability.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
@@ -23,8 +27,20 @@ class SearchScreen extends StatefulWidget {
   /// Optional booking data — contains selected vehicle + service type
   /// if user came from a vehicle card tap. Null if user tapped the pickup bar.
   final BookingData? bookingData;
+  final Future<VehicleOptionsResult> Function(BookingData)?
+  checkVehicleAvailability;
+  final ValueChanged<BookingData>? onTripValidated;
+  final TileProvider? mapTileProvider;
+  final Future<List<LatLng>> Function(List<LatLng>)? loadPreviewRoute;
 
-  const SearchScreen({super.key, this.bookingData});
+  const SearchScreen({
+    super.key,
+    this.bookingData,
+    this.checkVehicleAvailability,
+    this.onTripValidated,
+    this.mapTileProvider,
+    this.loadPreviewRoute,
+  });
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -47,6 +63,9 @@ class _SearchScreenState extends State<SearchScreen> {
   final List<_Stop> _stops = [];
   static const int _maxStops = 3;
   bool _locatingPickup = false;
+  bool _checkingVehicles = false;
+  bool _proceeding = false;
+  late BookingData _draftData;
 
   /// "Recent places" from the design: the PLACES this customer has been to,
   /// not the orders they placed. Derived from booking history because that is
@@ -74,6 +93,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    _draftData = widget.bookingData ?? BookingData();
     if (widget.bookingData?.pickupAddress != null) {
       _pickupController.text = widget.bookingData!.pickupAddress!;
       _pickupLat = widget.bookingData!.pickupLat;
@@ -84,6 +104,13 @@ class _SearchScreenState extends State<SearchScreen> {
       _dropController.text = widget.bookingData!.dropAddress!;
       _dropLat = widget.bookingData!.dropLat;
       _dropLng = widget.bookingData!.dropLng;
+    }
+    for (final raw in widget.bookingData?.stops ?? <Map<String, dynamic>>[]) {
+      final stop = _Stop();
+      stop.controller.text = (raw['address'] ?? '').toString();
+      stop.lat = (raw['lat'] as num?)?.toDouble();
+      stop.lng = (raw['lng'] as num?)?.toDouble();
+      _stops.add(stop);
     }
     _fetchRecentPlaces();
     _refreshPreviewRoute();
@@ -195,12 +222,12 @@ class _SearchScreenState extends State<SearchScreen> {
   /// that has coordinates, then drop. Used for both the map markers and the
   /// route geometry.
   List<LatLng> get _routeWaypoints => [
-        if (_pickupLat != null && _pickupLng != null)
-          LatLng(_pickupLat!, _pickupLng!),
-        for (final st in _stops)
-          if (st.hasCoords) LatLng(st.lat!, st.lng!),
-        if (_dropLat != null && _dropLng != null) LatLng(_dropLat!, _dropLng!),
-      ];
+    if (_pickupLat != null && _pickupLng != null)
+      LatLng(_pickupLat!, _pickupLng!),
+    for (final st in _stops)
+      if (st.hasCoords) LatLng(st.lat!, st.lng!),
+    if (_dropLat != null && _dropLng != null) LatLng(_dropLat!, _dropLng!),
+  ];
 
   /// Redraw the preview whenever the trip changes — a stop added, removed, or
   /// given a location. Falls back to straight segments when routing is
@@ -212,8 +239,12 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
     final drawn = <LatLng>[];
-    for (var i = 0; i < pts.length - 1; i++) {
-      drawn.addAll(await RoutingService.route(pts[i], pts[i + 1]));
+    if (widget.loadPreviewRoute != null) {
+      drawn.addAll(await widget.loadPreviewRoute!(pts));
+    } else {
+      for (var i = 0; i < pts.length - 1; i++) {
+        drawn.addAll(await RoutingService.route(pts[i], pts[i + 1]));
+      }
     }
     if (!mounted) return;
     setState(() => _previewRoute = drawn.length >= 2 ? drawn : pts);
@@ -250,7 +281,6 @@ class _SearchScreenState extends State<SearchScreen> {
         1000.0;
   }
 
-
   @override
   void dispose() {
     _pickupController.dispose();
@@ -284,8 +314,9 @@ class _SearchScreenState extends State<SearchScreen> {
       MaterialPageRoute(
         builder: (_) => MapPickerScreen(
           title: 'Pick Stop ${index + 1}',
-          initialLocation:
-              stop.lat != null ? LatLng(stop.lat!, stop.lng!) : null,
+          initialLocation: stop.lat != null
+              ? LatLng(stop.lat!, stop.lng!)
+              : null,
           initialAddress: stop.controller.text,
         ),
       ),
@@ -356,8 +387,10 @@ class _SearchScreenState extends State<SearchScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 16),
-            const Text('Use this address as',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const Text(
+              'Use this address as',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 8),
             ListTile(
               leading: Icon(Icons.my_location, color: AppColors.appColor),
@@ -382,7 +415,9 @@ class _SearchScreenState extends State<SearchScreen> {
         _pickupController.text = label;
         _pickupLat = selected.latitude;
         _pickupLng = selected.longitude;
-        _pickupCity = selected.city.trim().isEmpty ? null : selected.city.trim();
+        _pickupCity = selected.city.trim().isEmpty
+            ? null
+            : selected.city.trim();
       } else {
         _dropController.text = label;
         _dropLat = selected.latitude;
@@ -393,9 +428,11 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   String _formatSavedAddress(AddressModel a) {
-    final parts = [a.houseNo, a.area, a.city]
-        .where((p) => p.trim().isNotEmpty)
-        .toList();
+    final parts = [
+      a.houseNo,
+      a.area,
+      a.city,
+    ].where((p) => p.trim().isNotEmpty).toList();
     return parts.join(', ');
   }
 
@@ -408,7 +445,8 @@ class _SearchScreenState extends State<SearchScreen> {
       if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
       }
-      if (perm == LocationPermission.deniedForever || perm == LocationPermission.denied) {
+      if (perm == LocationPermission.deniedForever ||
+          perm == LocationPermission.denied) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Location permission denied')),
@@ -423,14 +461,24 @@ class _SearchScreenState extends State<SearchScreen> {
       );
 
       // Reverse geocode to get address text
-      final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+      final placemarks = await placemarkFromCoordinates(
+        pos.latitude,
+        pos.longitude,
+      );
       String address = 'Current Location';
       String? city;
       if (placemarks.isNotEmpty) {
         final p = placemarks.first;
-        final parts = [p.name, p.subLocality, p.locality, p.administrativeArea].where((s) => s != null && s.isNotEmpty);
+        final parts = [
+          p.name,
+          p.subLocality,
+          p.locality,
+          p.administrativeArea,
+        ].where((s) => s != null && s.isNotEmpty);
         address = parts.join(', ');
-        city = (p.locality ?? '').isNotEmpty ? p.locality : p.subAdministrativeArea;
+        city = (p.locality ?? '').isNotEmpty
+            ? p.locality
+            : p.subAdministrativeArea;
       }
 
       if (mounted) {
@@ -444,9 +492,9 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not get location: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not get location: $e')));
       }
     } finally {
       if (mounted) setState(() => _locatingPickup = false);
@@ -515,12 +563,14 @@ class _SearchScreenState extends State<SearchScreen> {
               initialZoom: 11,
               // A preview, not a map screen: taps belong to the fields above,
               // and a scrollable map inside a scrollable page fights the page.
-              interactionOptions:
-                  const InteractionOptions(flags: InteractiveFlag.none),
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.none,
+              ),
               onMapReady: _fitPreviewToRoute,
             ),
             children: [
               TileLayer(
+                tileProvider: widget.mapTileProvider,
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.movezy_user_app',
               ),
@@ -541,8 +591,11 @@ class _SearchScreenState extends State<SearchScreen> {
                     width: 34,
                     height: 42,
                     alignment: Alignment.topCenter,
-                    child: Icon(Icons.location_on,
-                        size: 32, color: HexColor('#22A447')),
+                    child: Icon(
+                      Icons.location_on,
+                      size: 32,
+                      color: HexColor('#22A447'),
+                    ),
                   ),
                   // Each intermediate stop carries its number, matching the
                   // numbered badge on its field above.
@@ -668,56 +721,131 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _proceedToCategory() async {
+    if (_proceeding) return;
     final pickup = _pickupController.text.trim();
     final drop = _dropController.text.trim();
 
     if (pickup.isEmpty || drop.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter both pickup and drop locations")),
+        const SnackBar(
+          content: Text("Please enter both pickup and drop locations"),
+        ),
       );
       return;
     }
 
-    // Try to geocode addresses if we don't have coords
-    await _geocodeAddresses();
+    setState(() {
+      _checkingVehicles = true;
+      _proceeding = true;
+    });
+    try {
+      // Try to geocode addresses if we don't have coords
+      await _geocodeAddresses();
+      if (!mounted) return;
 
-    // A stop without coordinates can't be routed or priced — make the user
-    // finish it rather than silently dropping it from the trip.
-    final incomplete = _stops.indexWhere(
-        (s) => s.controller.text.trim().isNotEmpty && !s.hasCoords);
-    if (incomplete != -1) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+      // A stop without coordinates can't be routed or priced — make the user
+      // finish it rather than silently dropping it from the trip.
+      final incomplete = _stops.indexWhere(
+        (s) => s.controller.text.trim().isEmpty || !s.hasCoords,
+      );
+      if (incomplete != -1) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
               content: Text(
-                  "Pick Stop ${incomplete + 1} on the map so we can route to it.")),
-        );
+                "Pick Stop ${incomplete + 1} on the map so we can route to it.",
+              ),
+            ),
+          );
+        }
+        return;
       }
-      return;
+
+      var data = _draftData.copyWith(
+        clearFareEstimate: true,
+        clearPickupCity: _pickupCity == null,
+        pickupAddress: pickup,
+        dropAddress: drop,
+        pickupLat: _pickupLat,
+        pickupLng: _pickupLng,
+        pickupCity: _pickupCity,
+        dropLat: _dropLat,
+        dropLng: _dropLng,
+        stops: _stops.where((s) => s.hasCoords).map((s) => s.toJson()).toList(),
+      );
+
+      // Check the complete route before the customer enters goods/pricing screens.
+      // Recheck after an explicit service switch; never silently replace their vehicle.
+      while (mounted) {
+        setState(() => _checkingVehicles = true);
+        final result = widget.checkVehicleAvailability != null
+            ? await widget.checkVehicleAvailability!(data)
+            : await fetchBookingVehicleOptions(data, eligibilityOnly: true);
+        if (!mounted) return;
+        setState(() => _checkingVehicles = false);
+        if (!result.availability.needsDecision) break;
+        final action = await showVehicleAvailabilityNotice(
+          context,
+          result.availability,
+          data.serviceType,
+        );
+        if (!mounted ||
+            action == null ||
+            action == TripRecoveryAction.changeLocations) {
+          return;
+        }
+        data = applyTripRecovery(data, action);
+        setState(() => _draftData = data);
+      }
+      if (!mounted) return;
+      if (widget.onTripValidated != null) {
+        widget.onTripValidated!(data);
+      } else {
+        pushTo(context, DeliveryCategoryScreen(bookingData: data));
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _checkingVehicles = false);
+      final failure = error is VehicleOptionsException
+          ? error
+          : const VehicleOptionsException(
+              'SERVICE_UNAVAILABLE',
+              'We could not check vehicle availability yet. Please try again.',
+            );
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(
+            failure.code == 'CONNECTION'
+                ? 'Check your connection'
+                : 'Trip could not be checked',
+          ),
+          content: Text(failure.message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(failure.retryable ? 'Back to locations' : 'OK'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      if (mounted)
+        setState(() {
+          _checkingVehicles = false;
+          _proceeding = false;
+        });
     }
-
-    final data = (widget.bookingData ?? BookingData()).copyWith(
-      pickupAddress: pickup,
-      dropAddress: drop,
-      pickupLat: _pickupLat,
-      pickupLng: _pickupLng,
-      pickupCity: _pickupCity,
-      dropLat: _dropLat,
-      dropLng: _dropLng,
-      stops: _stops.where((s) => s.hasCoords).map((s) => s.toJson()).toList(),
-    );
-
-    if (mounted) pushTo(context, DeliveryCategoryScreen(bookingData: data));
   }
 
   @override
   Widget build(BuildContext context) {
-
-    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      statusBarBrightness: Brightness.dark,
-      )
+    SystemChrome.setSystemUIOverlayStyle(
+      SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.dark,
+      ),
     );
 
     return Scaffold(
@@ -733,409 +861,477 @@ class _SearchScreenState extends State<SearchScreen> {
           // ZERO stops, and a 360x640 by ~158px with three — the stops feature
           // was unusable on any sub-800dp-tall device.
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-          Container(
-              // Sizes to its content. This was a hard-coded 285px that predates
-              // the stops feature: each stop row adds ~55px, so adding even one
-              // overflowed the header and clipped the stop rows and the ADD STOP
-              // button — on the very first tap of the feature. The design shows
-              // the header growing with each stop.
-              width: MediaQuery.of(context).size.width,
-              decoration:  BoxDecoration(
-                color: AppColors.appColor,
-                borderRadius: BorderRadius.only(bottomLeft: Radius.circular(25), bottomRight: Radius.circular(25))
-              ),
-              child: Container(
-                padding: const EdgeInsets.only(top: 50, bottom: 16),
+            child: AbsorbPointer(
+              absorbing: _proceeding,
+              child: SingleChildScrollView(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Top Row
-                    Row(
-                      children: [
-                        SizedBox(width: 5,),
-                        // Expanded: as a bare Row child this inner Row got
-                        // unbounded width, so the title laid out at its intrinsic
-                        // width and could never ellipsize. Bounding it here is
-                        // what lets the Expanded below have space to divide.
-                        Expanded(
-                          child: Row(
-                            children: [
-                              InkWell(
-                                onTap: (){
-                                  Navigator.pop(context);
-                                },
-                                child: Container(
-                                  padding: EdgeInsets.only(left: 16),
-                                  width: 40,
-                                  height: 35,
-                                  alignment: Alignment.center,
-                                  child: Icon(Icons.arrow_back_ios, color: Colors.white,),
-                                ),
-                              ),
-                              // Expanded + ellipsis: the back arrow is a fixed 40px,
-                              // so the title takes the rest instead of its intrinsic
-                              // width. At default scale it fits (~195px of ~275px) and
-                              // looks unchanged; at a 1.5x+ text scale it used to run
-                              // off a 320dp screen.
-                              Expanded(
-                                child: Text(
-                                  "Add Location to Proceed",
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      ],
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // Pickup field
-                    Row(
-                      children: [
-                        SizedBox(width: 20,),
-                        // LocationTile centers with loose constraints — the
-                        // old Container's tight 45px minus its 6px padding
-                        // forced the "22px" glyph to actually render at 33px.
-                        const LocationTile(child: LocationIcon.pickup()),
-
-                        Expanded(child: Container(
-                            margin: EdgeInsets.only(left: 10, right: 15),
-                            padding: const EdgeInsets.only(left: 15, right: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            // readOnly + onTap instead of AbsorbPointer. The
-                            // AbsorbPointer wrapped the whole TextField —
-                            // suffixIcon included — so the GPS crosshair could
-                            // never be tapped: the hit was swallowed and fell
-                            // through to the map picker, leaving
-                            // _useCurrentLocation() unreachable dead code.
-                            child: TextField(
-                                controller: _pickupController,
-                                readOnly: true,
-                                onTap: () => _openMapPicker(isPickup: true),
-                                decoration: InputDecoration(
-                                  suffixIcon: GestureDetector(
-                                    onTap: _useCurrentLocation,
-                                    child: Container(
-                                      padding: EdgeInsets.all(10),
-                                      child: _locatingPickup
-                                          ? SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.appColor))
-                                          : Image.asset("assets/current_location.png", height: 20, width: 20)),
-                                  ),
-                                    hintText: "Pickup From",
-                                    border: InputBorder.none,
-                                    hintStyle: TextStyle(
-                                        fontSize: 15,
-                                        color: Colors.black,
-                                        fontWeight: FontWeight.w400
-                                    )
-                                ),
-                              ),
-                          ),
-                        )
-                      ],
-                    ),
-
-                    const SizedBox(height: 15),
-
-                    // Drop field
-                    Row(
-                      children: [
-                        SizedBox(width: 20,),
-                        const LocationTile(child: LocationIcon.drop()),
-
-                        Expanded(child: GestureDetector(
-                          onTap: () => _openMapPicker(isPickup: false),
-                          child: Container(
-                            margin: EdgeInsets.only(left: 10, right: 15),
-                            padding: const EdgeInsets.only(left: 15, right: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: AbsorbPointer(
-                              child: TextField(
-                                controller: _dropController,
-                                decoration: InputDecoration(
-                                    suffixIcon: GestureDetector(
-                                      onTap: () => _openMapPicker(isPickup: false),
-                                      child: Container(
-                                        padding: EdgeInsets.all(10),
-                                        child: Icon(Icons.map, color: AppColors.appColor, size: 22),
-                                      ),
-                                    ),
-                                    hintText: "Drop At",
-                                    border: InputBorder.none,
-                                    hintStyle: TextStyle(
-                                        fontSize: 15,
-                                        color: Colors.black,
-                                        fontWeight: FontWeight.w400
-                                    )
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),)
-                      ],
-                    ),
-
-                    // ── Stops between pickup and drop ──
-                    ..._stops.asMap().entries.map((e) => _stopRow(e.key)),
-
-                    if (_stops.length < _maxStops)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Center(
-                          child: InkWell(
-                            onTap: _addStop,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 6),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: const [
-                                  Icon(Icons.add_circle,
-                                      color: Colors.white, size: 18),
-                                  SizedBox(width: 7),
-                                  Text(
-                                    "ADD STOP",
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.4,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                    Container(
+                      // Sizes to its content. This was a hard-coded 285px that predates
+                      // the stops feature: each stop row adds ~55px, so adding even one
+                      // overflowed the header and clipped the stop rows and the ADD STOP
+                      // button — on the very first tap of the feature. The design shows
+                      // the header growing with each stop.
+                      width: MediaQuery.of(context).size.width,
+                      decoration: BoxDecoration(
+                        color: AppColors.appColor,
+                        borderRadius: BorderRadius.only(
+                          bottomLeft: Radius.circular(25),
+                          bottomRight: Radius.circular(25),
                         ),
                       ),
-
-                  ],
-                ),
-              )
-          ),
-
-          // Route preview — the design shows the trip on a map as stops
-          // are added.
-          _routePreviewMap(),
-
-          SizedBox(height: 20,),
-
-          // Saved Addresses and Recent places are the ways to START a trip.
-          // Once pickup and drop are set the route preview above replaces
-          // them, as in the design — keeping pickers on screen below a drawn
-          // route is just noise the customer has to scroll past.
-          if (!_hasRoutePreview) ...[
-            InkWell(
-              onTap: _pickFromSavedAddresses,
-              child: Container(
-                color: Colors.white,
-                height: 60,
-                child: Row(
-                  children: [
-
-                    SizedBox(width: 20,),
-
-                    SizedBox(
-                      height: 25,
-                        width: 25,
-                        child: Image.asset("assets/heart_icon.png")
-                    ),
-
-                    SizedBox(width: 10,),
-
-                    Text("Saved Addresses ",style: TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.w500),),
-
-                    Expanded(child: Container(width: 0,)),
-
-                    Icon(Icons.arrow_forward_ios, size: 16,),
-
-                    SizedBox(width: 20,)
-                  ],
-                ),
-              ),
-            ),
-
-            SizedBox(height: 20,),
-
-
-            // ─── RECENT PLACES (real data) ───
-            // The design's section: places the customer has been to, with the
-            // distance from where they are now. It replaced a "Recent
-            // Deliveries" list that showed ORDERS ("Tata Ace • #MZ0007") — a
-            // different thing, and not what the design asks for.
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: Row(
-                children: [
-                  const Text(
-                    "Recent places",
-                    style: TextStyle(
-                      color: Colors.black,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (_recentPlaces.isNotEmpty)
-                    InkWell(
-                      onTap: _clearRecentPlaces,
-                      child: Text(
-                        "Clear All",
-                        style: TextStyle(
-                          color: HexColor('#F4BE05'),
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-
-            if (_loadingRecent)
-              Container(
-                color: Colors.white,
-                height: 80,
-                child: const Center(
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              )
-            else if (_recentPlaces.isEmpty)
-              Container(
-                color: Colors.white,
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                child: Text(
-                  "Places you travel to will appear here.",
-                  style: TextStyle(color: HexColor("#777777"), fontSize: 13),
-                ),
-              )
-            else
-              Container(
-                color: Colors.white,
-                child: Column(
-                  children: _recentPlaces.map((place) {
-                    final km = _distanceKmTo(place);
-                    return InkWell(
-                      onTap: () {
-                        // Fill the drop field, WITH coordinates. A tap that set
-                        // only the text left the downstream screens to guess the
-                        // coordinates, which priced a route the customer had not
-                        // chosen.
-                        setState(() {
-                          _dropController.text = [place.name, place.address]
-                              .where((e) => e.isNotEmpty)
-                              .join(', ');
-                          _dropLat = place.lat;
-                          _dropLng = place.lng;
-                        });
-                        _refreshPreviewRoute();
-                      },
-                      child: Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                        child: Row(
+                      child: Container(
+                        padding: const EdgeInsets.only(top: 50, bottom: 16),
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: Icon(
-                                Icons.access_time,
-                                size: 22,
-                                color: HexColor("#9E9E9E"),
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    place.name,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  if (place.address.isNotEmpty) ...[
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      place.address,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: HexColor("#9E9E9E"),
+                            // Top Row
+                            Row(
+                              children: [
+                                SizedBox(width: 5),
+                                // Expanded: as a bare Row child this inner Row got
+                                // unbounded width, so the title laid out at its intrinsic
+                                // width and could never ellipsize. Bounding it here is
+                                // what lets the Expanded below have space to divide.
+                                Expanded(
+                                  child: Row(
+                                    children: [
+                                      InkWell(
+                                        onTap: () {
+                                          Navigator.pop(context);
+                                        },
+                                        child: Container(
+                                          padding: EdgeInsets.only(left: 16),
+                                          width: 40,
+                                          height: 35,
+                                          alignment: Alignment.center,
+                                          child: Icon(
+                                            Icons.arrow_back_ios,
+                                            color: Colors.white,
+                                          ),
+                                        ),
                                       ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ],
-                              ),
+                                      // Expanded + ellipsis: the back arrow is a fixed 40px,
+                                      // so the title takes the rest instead of its intrinsic
+                                      // width. At default scale it fits (~195px of ~275px) and
+                                      // looks unchanged; at a 1.5x+ text scale it used to run
+                                      // off a 320dp screen.
+                                      Expanded(
+                                        child: Text(
+                                          _draftData.serviceType == 'OUTSTATION'
+                                              ? 'Outstation locations'
+                                              : 'Add Location to Proceed',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                            // Distance is omitted entirely when the user's
-                            // position is unknown — a made-up number here would
-                            // be indistinguishable from a real one.
-                            if (km != null) ...[
-                              const SizedBox(width: 12),
+
+                            const SizedBox(height: 20),
+
+                            // Pickup field
+                            Row(
+                              children: [
+                                SizedBox(width: 20),
+                                // LocationTile centers with loose constraints — the
+                                // old Container's tight 45px minus its 6px padding
+                                // forced the "22px" glyph to actually render at 33px.
+                                const LocationTile(
+                                  child: LocationIcon.pickup(),
+                                ),
+
+                                Expanded(
+                                  child: Container(
+                                    margin: EdgeInsets.only(
+                                      left: 10,
+                                      right: 15,
+                                    ),
+                                    padding: const EdgeInsets.only(
+                                      left: 15,
+                                      right: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    // readOnly + onTap instead of AbsorbPointer. The
+                                    // AbsorbPointer wrapped the whole TextField —
+                                    // suffixIcon included — so the GPS crosshair could
+                                    // never be tapped: the hit was swallowed and fell
+                                    // through to the map picker, leaving
+                                    // _useCurrentLocation() unreachable dead code.
+                                    child: TextField(
+                                      controller: _pickupController,
+                                      readOnly: true,
+                                      onTap: () =>
+                                          _openMapPicker(isPickup: true),
+                                      decoration: InputDecoration(
+                                        suffixIcon: GestureDetector(
+                                          onTap: _useCurrentLocation,
+                                          child: Container(
+                                            padding: EdgeInsets.all(10),
+                                            child: _locatingPickup
+                                                ? SizedBox(
+                                                    height: 20,
+                                                    width: 20,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                          color: AppColors
+                                                              .appColor,
+                                                        ),
+                                                  )
+                                                : Image.asset(
+                                                    "assets/current_location.png",
+                                                    height: 20,
+                                                    width: 20,
+                                                  ),
+                                          ),
+                                        ),
+                                        hintText: "Pickup From",
+                                        border: InputBorder.none,
+                                        hintStyle: TextStyle(
+                                          fontSize: 15,
+                                          color: Colors.black,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 15),
+
+                            // Drop field
+                            Row(
+                              children: [
+                                SizedBox(width: 20),
+                                const LocationTile(child: LocationIcon.drop()),
+
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () =>
+                                        _openMapPicker(isPickup: false),
+                                    child: Container(
+                                      margin: EdgeInsets.only(
+                                        left: 10,
+                                        right: 15,
+                                      ),
+                                      padding: const EdgeInsets.only(
+                                        left: 15,
+                                        right: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: AbsorbPointer(
+                                        child: TextField(
+                                          controller: _dropController,
+                                          decoration: InputDecoration(
+                                            suffixIcon: GestureDetector(
+                                              onTap: () => _openMapPicker(
+                                                isPickup: false,
+                                              ),
+                                              child: Container(
+                                                padding: EdgeInsets.all(10),
+                                                child: Icon(
+                                                  Icons.map,
+                                                  color: AppColors.appColor,
+                                                  size: 22,
+                                                ),
+                                              ),
+                                            ),
+                                            hintText: "Drop At",
+                                            border: InputBorder.none,
+                                            hintStyle: TextStyle(
+                                              fontSize: 15,
+                                              color: Colors.black,
+                                              fontWeight: FontWeight.w400,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // ── Stops between pickup and drop ──
+                            ..._stops.asMap().entries.map(
+                              (e) => _stopRow(e.key),
+                            ),
+
+                            if (_stops.length < _maxStops)
                               Padding(
-                                padding: const EdgeInsets.only(top: 2),
-                                child: Text(
-                                  km < 10
-                                      ? "${km.toStringAsFixed(1)}km"
-                                      : "${km.round()}km",
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.black,
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Center(
+                                  child: InkWell(
+                                    onTap: _addStop,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 6,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: const [
+                                          Icon(
+                                            Icons.add_circle,
+                                            color: Colors.white,
+                                            size: 18,
+                                          ),
+                                          SizedBox(width: 7),
+                                          Text(
+                                            "ADD STOP",
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: 0.4,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ],
                           ],
                         ),
                       ),
-                    );
-                  }).toList(),
-                ),
-              ),
+                    ),
 
-          ],
-          // NOTE: a hardcoded "Popular in your area" list (Railway Station /
-          // Airport Terminal / City Bus Stand / Industrial Area) used to live
-          // here. It is not in the design — which has Saved Addresses + Recent
-          // places — and it was actively harmful: tapping an entry only set the
-          // drop TEXT with no coordinates, and the downstream screens then
-          // substituted fixed Delhi/Noida coords, so the user saw fares for a
-          // route that wasn't theirs and could book to the wrong place.
-          // The Spacer that was here is gone: a Spacer inside a
-          // SingleChildScrollView's Column asserts on unbounded height, and it
-          // clamped to 0 and absorbed nothing once space went negative anyway.
-                ],
+                    // Route preview — the design shows the trip on a map as stops
+                    // are added.
+                    _routePreviewMap(),
+
+                    SizedBox(height: 20),
+
+                    // Saved Addresses and Recent places are the ways to START a trip.
+                    // Once pickup and drop are set the route preview above replaces
+                    // them, as in the design — keeping pickers on screen below a drawn
+                    // route is just noise the customer has to scroll past.
+                    if (!_hasRoutePreview) ...[
+                      InkWell(
+                        onTap: _pickFromSavedAddresses,
+                        child: Container(
+                          color: Colors.white,
+                          height: 60,
+                          child: Row(
+                            children: [
+                              SizedBox(width: 20),
+
+                              SizedBox(
+                                height: 25,
+                                width: 25,
+                                child: Image.asset("assets/heart_icon.png"),
+                              ),
+
+                              SizedBox(width: 10),
+
+                              Text(
+                                "Saved Addresses ",
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+
+                              Expanded(child: Container(width: 0)),
+
+                              Icon(Icons.arrow_forward_ios, size: 16),
+
+                              SizedBox(width: 20),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      SizedBox(height: 20),
+
+                      // ─── RECENT PLACES (real data) ───
+                      // The design's section: places the customer has been to, with the
+                      // distance from where they are now. It replaced a "Recent
+                      // Deliveries" list that showed ORDERS ("Tata Ace • #MZ0007") — a
+                      // different thing, and not what the design asks for.
+                      Container(
+                        color: Colors.white,
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                        child: Row(
+                          children: [
+                            const Text(
+                              "Recent places",
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const Spacer(),
+                            if (_recentPlaces.isNotEmpty)
+                              InkWell(
+                                onTap: _clearRecentPlaces,
+                                child: Text(
+                                  "Clear All",
+                                  style: TextStyle(
+                                    color: HexColor('#F4BE05'),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+
+                      if (_loadingRecent)
+                        Container(
+                          color: Colors.white,
+                          height: 80,
+                          child: const Center(
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      else if (_recentPlaces.isEmpty)
+                        Container(
+                          color: Colors.white,
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                          child: Text(
+                            "Places you travel to will appear here.",
+                            style: TextStyle(
+                              color: HexColor("#777777"),
+                              fontSize: 13,
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          color: Colors.white,
+                          child: Column(
+                            children: _recentPlaces.map((place) {
+                              final km = _distanceKmTo(place);
+                              return InkWell(
+                                onTap: () {
+                                  // Fill the drop field, WITH coordinates. A tap that set
+                                  // only the text left the downstream screens to guess the
+                                  // coordinates, which priced a route the customer had not
+                                  // chosen.
+                                  setState(() {
+                                    _dropController.text = [
+                                      place.name,
+                                      place.address,
+                                    ].where((e) => e.isNotEmpty).join(', ');
+                                    _dropLat = place.lat;
+                                    _dropLng = place.lng;
+                                  });
+                                  _refreshPreviewRoute();
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 14,
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: Icon(
+                                          Icons.access_time,
+                                          size: 22,
+                                          color: HexColor("#9E9E9E"),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              place.name,
+                                              style: const TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.black,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            if (place.address.isNotEmpty) ...[
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                place.address,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: HexColor("#9E9E9E"),
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                      // Distance is omitted entirely when the user's
+                                      // position is unknown — a made-up number here would
+                                      // be indistinguishable from a real one.
+                                      if (km != null) ...[
+                                        const SizedBox(width: 12),
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 2,
+                                          ),
+                                          child: Text(
+                                            km < 10
+                                                ? "${km.toStringAsFixed(1)}km"
+                                                : "${km.round()}km",
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w500,
+                                              color: Colors.black,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                    ],
+                    // NOTE: a hardcoded "Popular in your area" list (Railway Station /
+                    // Airport Terminal / City Bus Stand / Industrial Area) used to live
+                    // here. It is not in the design — which has Saved Addresses + Recent
+                    // places — and it was actively harmful: tapping an entry only set the
+                    // drop TEXT with no coordinates, and the downstream screens then
+                    // substituted fixed Delhi/Noida coords, so the user saw fares for a
+                    // route that wasn't theirs and could book to the wrong place.
+                    // The Spacer that was here is gone: a Spacer inside a
+                    // SingleChildScrollView's Column asserts on unbounded height, and it
+                    // clamped to 0 and absorbed nothing once space went negative anyway.
+                  ],
+                ),
               ),
             ),
           ),
-
           // Search / Proceed button — outside the scroll view so it stays
           // reachable no matter how tall the content gets.
           Container(
@@ -1144,7 +1340,11 @@ class _SearchScreenState extends State<SearchScreen> {
             // (gesture bar / nav buttons) is added to the bottom only, so the
             // Search button is never partly underneath the system UI.
             padding: EdgeInsets.fromLTRB(
-                20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
+              20,
+              12,
+              20,
+              12 + MediaQuery.of(context).padding.bottom,
+            ),
             color: Colors.white,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -1155,14 +1355,21 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
                 elevation: 0,
               ),
-              onPressed: _proceedToCategory,
+              onPressed: _proceeding ? null : _proceedToCategory,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.search, color: Colors.white, size: 20),
+                  if (_checkingVehicles)
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    const Icon(Icons.search, color: Colors.white, size: 20),
                   SizedBox(width: 8),
                   Text(
-                    "search vehicle",
+                    _checkingVehicles ? 'Checking trip…' : 'search vehicle',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 16,
@@ -1177,7 +1384,6 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
     );
   }
-
 }
 
 /// An intermediate stop between pickup and drop.
@@ -1222,7 +1428,11 @@ class _RecentPlace {
     final lng = (raw['lng'] as num?)?.toDouble();
     if (address.isEmpty || lat == null || lng == null) return null;
 
-    final parts = address.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    final parts = address
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
     final name = parts.isNotEmpty ? parts.first : address;
     final rest = parts.length > 1 ? parts.sublist(1).join(', ') : '';
 
@@ -1239,8 +1449,8 @@ class _Stop {
 
   /// Shape the backend expects for booking.stops.
   Map<String, dynamic> toJson() => {
-        'address': controller.text.trim(),
-        'lat': lat,
-        'lng': lng,
-      };
+    'address': controller.text.trim(),
+    'lat': lat,
+    'lng': lng,
+  };
 }

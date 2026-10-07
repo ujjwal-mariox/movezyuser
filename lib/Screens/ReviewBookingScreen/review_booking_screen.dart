@@ -120,8 +120,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   /// unset used to book a pickup for right now. Today needs no slot — that IS
   /// "pick up now".
   bool get _pickupTimeAnswered =>
-      DateUtils.isSameDay(_selectedDate, DateTime.now()) ||
-      _selectedSlot != null;
+      !_scheduleLater || _selectedSlot != null;
 
   /// Loading services now live IN the add-on list (client decision: one place
   /// to pick services, all optional). They stay mutually exclusive with each

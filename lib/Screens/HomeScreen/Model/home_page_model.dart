@@ -1,6 +1,7 @@
 class HomeVehicleType {
   final String id;
   final String name;
+  final String? categoryCode;
   final String? description;
   final double maxWeightKg;
   final double lengthFt;
@@ -20,6 +21,7 @@ class HomeVehicleType {
   HomeVehicleType({
     required this.id,
     required this.name,
+    this.categoryCode,
     this.description,
     required this.maxWeightKg,
     this.lengthFt = 0,
@@ -41,6 +43,7 @@ class HomeVehicleType {
     return HomeVehicleType(
       id: json['_id'] ?? '',
       name: json['name'] ?? '',
+      categoryCode: json['categoryCode'],
       description: json['description'],
       maxWeightKg: (json['maxWeightKg'] ?? 0).toDouble(),
       lengthFt: (json['lengthFt'] ?? 0).toDouble(),

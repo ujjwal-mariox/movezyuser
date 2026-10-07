@@ -103,6 +103,9 @@ class BookingData {
 
   /// Create a copy with updated fields
   BookingData copyWith({
+    bool clearSelectedVehicle = false,
+    bool clearFareEstimate = false,
+    bool clearPickupCity = false,
     HomeVehicleType? selectedVehicle,
     String? serviceType,
     String? pickupAddress,
@@ -128,13 +131,15 @@ class BookingData {
     int? goodsWeight,
   }) {
     return BookingData(
-      selectedVehicle: selectedVehicle ?? this.selectedVehicle,
+      selectedVehicle: clearSelectedVehicle
+          ? null
+          : selectedVehicle ?? this.selectedVehicle,
       serviceType: serviceType ?? this.serviceType,
       pickupAddress: pickupAddress ?? this.pickupAddress,
       dropAddress: dropAddress ?? this.dropAddress,
       pickupLat: pickupLat ?? this.pickupLat,
       pickupLng: pickupLng ?? this.pickupLng,
-      pickupCity: pickupCity ?? this.pickupCity,
+      pickupCity: clearPickupCity ? null : pickupCity ?? this.pickupCity,
       receiverName: receiverName ?? this.receiverName,
       receiverPhone: receiverPhone ?? this.receiverPhone,
       dropLat: dropLat ?? this.dropLat,
@@ -147,7 +152,9 @@ class BookingData {
       selectedAddonIds: selectedAddonIds ?? this.selectedAddonIds,
       promoCode: promoCode ?? this.promoCode,
       promoDiscount: promoDiscount ?? this.promoDiscount,
-      fareEstimate: fareEstimate ?? this.fareEstimate,
+      fareEstimate: clearFareEstimate
+          ? null
+          : fareEstimate ?? this.fareEstimate,
       paymentMethod: paymentMethod ?? this.paymentMethod,
       goodsDescription: goodsDescription ?? this.goodsDescription,
       goodsWeight: goodsWeight ?? this.goodsWeight,

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
+import 'package:movezy_user_app/CommonWidgets/vehicle_availability_notice.dart';
+import 'package:movezy_user_app/Screens/SearchScreen/search_screen.dart';
+import 'package:movezy_user_app/Services/booking_vehicle_options.dart';
+import 'package:movezy_user_app/Services/vehicle_availability.dart';
 import 'package:movezy_user_app/CommonWidgets/vehicle_dimension_figure.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/home_page_model.dart';
@@ -14,8 +17,15 @@ import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 /// and displays them sorted with the best match marked as "Recommended".
 class VehicleSelectionScreen extends StatefulWidget {
   final BookingData bookingData;
+  final Future<List<VehicleOption>> Function(BookingData)? loadVehicleOptions;
+  final Future<VehicleOptionsResult> Function(BookingData)? loadVehicleResult;
 
-  const VehicleSelectionScreen({super.key, required this.bookingData});
+  const VehicleSelectionScreen({
+    super.key,
+    required this.bookingData,
+    this.loadVehicleOptions,
+    this.loadVehicleResult,
+  });
 
   @override
   State<VehicleSelectionScreen> createState() => _VehicleSelectionScreenState();
@@ -25,11 +35,16 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
   List<VehicleOption> _options = [];
   bool _isLoading = true;
   String? _error;
+  VehicleOptionsException? _failure;
+  VehicleAvailability? _availability;
+  bool _acknowledgedPreference = false;
+  late BookingData _bookingData;
   int? _selectedIndex;
 
   @override
   void initState() {
     super.initState();
+    _bookingData = widget.bookingData;
     _fetchVehicleOptions();
   }
 
@@ -38,73 +53,96 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
       setState(() {
         _isLoading = true;
         _error = null;
+        _failure = null;
+        _availability = null;
+        _options = [];
+        _selectedIndex = null;
       });
 
-      debugPrint('[VehicleSelection] Fetching options. goodsTypeId=${widget.bookingData.goodsTypeId}, serviceType=${widget.bookingData.serviceType}');
-      debugPrint('[VehicleSelection] allVehicles count=${widget.bookingData.allVehicles.length}');
+      debugPrint(
+        '[VehicleSelection] Fetching options. goodsTypeId=${widget.bookingData.goodsTypeId}, serviceType=${widget.bookingData.serviceType}',
+      );
+      debugPrint(
+        '[VehicleSelection] allVehicles count=${widget.bookingData.allVehicles.length}',
+      );
       for (final v in widget.bookingData.allVehicles) {
-        debugPrint('[VehicleSelection]   allVehicle: id=${v.id} name=${v.name}');
+        debugPrint(
+          '[VehicleSelection]   allVehicle: id=${v.id} name=${v.name}',
+        );
       }
 
       // Require real coordinates. These defaulted to fixed Delhi/Noida coords,
       // so with unresolved addresses every vehicle's price/ETA below was quoted
       // for a ~20 km Delhi→Noida trip the user never asked for.
-      final pLat = widget.bookingData.pickupLat;
-      final pLng = widget.bookingData.pickupLng;
-      final dLat = widget.bookingData.dropLat;
-      final dLng = widget.bookingData.dropLng;
-      if (pLat == null || pLng == null || dLat == null || dLng == null) {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _error =
-                "We couldn't pin your pickup or drop location. Go back and choose it on the map.";
-          });
-        }
-        return;
+      if (!validBookingCoordinates(
+            _bookingData.pickupLat,
+            _bookingData.pickupLng,
+          ) ||
+          !validBookingCoordinates(
+            _bookingData.dropLat,
+            _bookingData.dropLng,
+          )) {
+        throw const VehicleOptionsException(
+          'INVALID_LOCATIONS',
+          'Choose both pickup and drop locations on the map.',
+          retryable: false,
+        );
       }
-
-      final options = await BookingService.getVehicleOptions(
-        pickup: {
-          'lat': pLat,
-          'lng': pLng,
-          if (widget.bookingData.pickupCity != null) 'city': widget.bookingData.pickupCity,
-        },
-        drop: {'lat': dLat, 'lng': dLng},
-        // Same stops Review Booking prices with, so the figure on the card is
-        // the figure the customer ends up paying.
-        stops: widget.bookingData.stops,
-        serviceType: widget.bookingData.serviceType,
-        preferredVehicleTypeId: widget.bookingData.selectedVehicle?.id,
-        goodsTypeId: widget.bookingData.goodsTypeId,
-      );
+      final VehicleOptionsResult result;
+      if (widget.loadVehicleResult != null) {
+        result = await widget.loadVehicleResult!(_bookingData);
+      } else if (widget.loadVehicleOptions != null) {
+        final options = await widget.loadVehicleOptions!(_bookingData);
+        result = VehicleOptionsResult(
+          options: options,
+          availability: VehicleAvailability(
+            code: options.isEmpty ? 'NO_MATCHING_VEHICLES' : 'AVAILABLE',
+            availableCount: options.length,
+            preferredCode: _bookingData.selectedVehicle == null
+                ? null
+                : options.any(
+                    (o) => o.vehicleTypeId == _bookingData.selectedVehicle!.id,
+                  )
+                ? 'AVAILABLE'
+                : 'VEHICLE_UNAVAILABLE',
+          ),
+        );
+      } else {
+        result = await fetchBookingVehicleOptions(_bookingData);
+      }
+      final options = result.options;
 
       debugPrint('[VehicleSelection] API returned ${options.length} options');
       for (final o in options) {
-        debugPrint('[VehicleSelection]   option: id=${o.vehicleTypeId} name=${o.name} fare=${o.estimatedFare} recommended=${o.isRecommended}');
+        debugPrint(
+          '[VehicleSelection]   option: id=${o.vehicleTypeId} name=${o.name} fare=${o.estimatedFare} recommended=${o.isRecommended}',
+        );
       }
 
       if (mounted) {
         setState(() {
           _options = options;
+          _availability = result.availability;
+          _acknowledgedPreference = false;
+          _selectedIndex = null;
           _isLoading = false;
           if (options.isEmpty) {
             // Every vehicle type has a max distance; none covers this trip.
-            _error = 'No vehicle type can cover this trip distance. Try a shorter trip or contact support.';
+            _error = result.availability.explanation;
           }
           // Preselect what the customer already chose (a home-screen tile),
           // falling back to the recommended one. This screen now ALWAYS shows
           // — the flow used to skip it entirely when a vehicle was preset, so
           // the customer never saw the other options or their prices.
-          final priorId = widget.bookingData.selectedVehicle?.id;
+          final priorId = _bookingData.selectedVehicle?.id;
           final priorIdx = priorId == null
               ? -1
               : options.indexWhere((o) => o.vehicleTypeId == priorId);
           if (priorIdx >= 0) {
             _selectedIndex = priorIdx;
-          } else {
+          } else if (priorId == null) {
             final recIdx = options.indexWhere((o) => o.isRecommended);
-            if (recIdx >= 0) _selectedIndex = recIdx;
+            if (options.isNotEmpty) _selectedIndex = recIdx >= 0 ? recIdx : 0;
           }
         });
       }
@@ -117,14 +155,20 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
           // for a trip that bills ₹2,887 — it ignores distance entirely — and
           // badged whichever vehicle happened to be first as "Recommended",
           // a recommendation nothing had computed.
-          _error = "We couldn't load vehicle prices. Check your connection and try again.";
+          _error =
+              "We couldn't load vehicle prices. Check your connection and try again.";
+          _failure = e is VehicleOptionsException
+              ? e
+              : const VehicleOptionsException(
+                  'SERVICE_UNAVAILABLE',
+                  'Vehicle prices are temporarily unavailable. Please try again.',
+                );
+          _error = _failure!.message;
           _isLoading = false;
         });
       }
     }
   }
-
-
 
   /// Convert selected VehicleOption back to HomeVehicleType for downstream screens
   HomeVehicleType _toHomeVehicleType(VehicleOption opt) {
@@ -146,24 +190,18 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
       sortOrder: opt.sortOrder,
       allowIntraCity: opt.allowIntraCity,
       allowInterCity: opt.allowInterCity,
+      categoryCode: opt.categoryCode,
+      minRangeKm: opt.minRangeKm,
+      maxRangeKm: opt.maxRangeKm,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    // Recommended: the vehicle the customer picked on the home screen first,
-    // then the server's best match; everything else under Others.
-    final priorId = widget.bookingData.selectedVehicle?.id;
-    VehicleOption? prior;
-    for (final o in _options) {
-      if (priorId != null && o.vehicleTypeId == priorId) {
-        prior = o;
-        break;
-      }
-    }
+    // Selection can change here, so follow the current choice on every build.
     final recommended = <VehicleOption>[
-      if (prior != null) prior,
-      ..._options.where((o) => o.isRecommended && o.vehicleTypeId != priorId),
+      if (_selectedIndex != null && _selectedIndex! < _options.length)
+        _options[_selectedIndex!],
     ];
     final others = _options.where((o) => !recommended.contains(o)).toList();
 
@@ -179,55 +217,89 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null && _options.isEmpty
-                    ? _buildError()
-                    : ListView(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        children: [
-                          // Distance & duration info
-                          // The design has no distance/duration strip here —
-                          // each row carries its own "Kg. mins" subtitle.
+                ? _buildError()
+                : ListView(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    children: [
+                      if (_availability?.preferredUnavailable == true &&
+                          !_acknowledgedPreference)
+                        _availabilityNotice(),
+                      if (_availability?.code == 'PARTIAL_PRICES') ...[
+                        Text(
+                          _availability!.message ??
+                              'Some prices are temporarily unavailable.',
+                        ),
+                        TextButton(
+                          onPressed: _fetchVehicleOptions,
+                          child: const Text('Try again'),
+                        ),
+                      ],
+                      if (_availability?.approximate == true)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: Text(
+                            'Distance and prices are estimated while road routing is unavailable. Your trip will be checked again before booking.',
+                          ),
+                        ),
+                      // Distance & duration info
+                      // The design has no distance/duration strip here —
+                      // each row carries its own "Kg. mins" subtitle.
 
-                          // Recommended
-                          if (recommended.isNotEmpty) ...[
-                            Text("Recommended",
-                                style: TextStyle(
-                                    fontSize: 16.5,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.grey.shade600)),
-                            const SizedBox(height: 12),
-                            ...recommended.map((opt) {
-                              final idx = _options.indexOf(opt);
-                              return _buildVehicleCard(opt, idx, isRecommended: true);
-                            }),
-                          ],
+                      // Recommended
+                      if (recommended.isNotEmpty) ...[
+                        Text(
+                          "Recommended",
+                          style: TextStyle(
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ...recommended.map((opt) {
+                          final idx = _options.indexOf(opt);
+                          return _buildVehicleCard(
+                            opt,
+                            idx,
+                            isRecommended: true,
+                          );
+                        }),
+                      ],
 
-                          // Others — flat rows separated by hairlines, not cards
-                          if (others.isNotEmpty) ...[
-                            const SizedBox(height: 22),
-                            Text("Others",
-                                style: TextStyle(
-                                    fontSize: 16.5,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.grey.shade600)),
-                            const SizedBox(height: 4),
-                            ...others.asMap().entries.map((e) {
-                              final opt = e.value;
-                              final idx = _options.indexOf(opt);
-                              return Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  _buildVehicleCard(opt, idx),
-                                  if (e.key != others.length - 1)
-                                    const Divider(
-                                        height: 1,
-                                        thickness: 1.5,
-                                        color: Color(0xFFFCEBE0)),
-                                ],
-                              );
-                            }),
-                          ],
-                        ],
-                      ),
+                      // Others — flat rows separated by hairlines, not cards
+                      if (others.isNotEmpty) ...[
+                        const SizedBox(height: 22),
+                        Text(
+                          "Others",
+                          style: TextStyle(
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        ...others.asMap().entries.map((e) {
+                          final opt = e.value;
+                          final idx = _options.indexOf(opt);
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildVehicleCard(opt, idx),
+                              if (e.key != others.length - 1)
+                                const Divider(
+                                  height: 1,
+                                  thickness: 1.5,
+                                  color: Color(0xFFFCEBE0),
+                                ),
+                            ],
+                          );
+                        }),
+                      ],
+                    ],
+                  ),
           ),
 
           // Bottom button
@@ -236,20 +308,31 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
             // bar / nav buttons) is added to it so the "Next / Select a
             // vehicle" button is never underneath the system UI.
             padding: EdgeInsets.fromLTRB(
-                16, 0, 16, 24 + MediaQuery.of(context).padding.bottom),
+              16,
+              0,
+              16,
+              24 + MediaQuery.of(context).padding.bottom,
+            ),
             child: SizedBox(
               width: double.infinity,
               height: 54,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _selectedIndex != null ? AppColors.appColor : Colors.grey.shade400,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  backgroundColor: _selectedIndex != null
+                      ? AppColors.appColor
+                      : Colors.grey.shade400,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 onPressed: _selectedIndex != null
                     ? () {
                         final selected = _options[_selectedIndex!];
                         final vehicle = _toHomeVehicleType(selected);
-                        final updatedData = widget.bookingData.copyWith(selectedVehicle: vehicle);
+                        final updatedData = _bookingData.copyWith(
+                          selectedVehicle: vehicle,
+                          clearFareEstimate: true,
+                        );
                         // Straight to Review. The old LoadAssistScreen sat here
                         // unconditionally — every customer saw a page titled
                         // "Load Assist" whether or not they wanted loading help,
@@ -258,12 +341,19 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                         // set on the delivery-category screen, and Review
                         // re-collects weight on its quantity steppers. Load
                         // Assist now opens only from the add-on toggle.
-                        pushTo(context, ReviewBookingScreen(bookingData: updatedData));
+                        pushTo(
+                          context,
+                          ReviewBookingScreen(bookingData: updatedData),
+                        );
                       }
                     : null,
                 child: Text(
                   _selectedIndex != null ? "Next" : "Select a vehicle",
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
@@ -279,14 +369,15 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
   /// there rather than duplicating that editor — stops are already modelled
   /// (BookingData.stops) and are sent on create, so this isn't a dead control.
   Widget _locationHeader() {
-    final stops = widget.bookingData.stops;
+    final stops = _bookingData.stops;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.only(
-          top: MediaQuery.of(context).padding.top + 14,
-          left: 16,
-          right: 16,
-          bottom: 18),
+        top: MediaQuery.of(context).padding.top + 14,
+        left: 16,
+        right: 16,
+        bottom: 18,
+      ),
       decoration: BoxDecoration(
         color: AppColors.appColor,
         borderRadius: const BorderRadius.only(
@@ -303,8 +394,11 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                 onTap: () => Navigator.pop(context),
                 child: const Padding(
                   padding: EdgeInsets.only(right: 8),
-                  child: Icon(Icons.arrow_back_ios,
-                      color: Colors.white, size: 18),
+                  child: Icon(
+                    Icons.arrow_back_ios,
+                    color: Colors.white,
+                    size: 18,
+                  ),
                 ),
               ),
               Expanded(
@@ -313,9 +407,10 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700),
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -323,9 +418,12 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
           const SizedBox(height: 14),
           _addressRow(
             isPickup: true,
-            text: widget.bookingData.pickupAddress ?? 'Pickup location',
-            trailing: Icon(Icons.gps_fixed,
-                size: 20, color: AppColors.appColor),
+            text: _bookingData.pickupAddress ?? 'Pickup location',
+            trailing: Icon(
+              Icons.gps_fixed,
+              size: 20,
+              color: AppColors.appColor,
+            ),
           ),
           _dashedConnector(),
           // Any intermediate stops sit between pickup and drop, in order.
@@ -339,23 +437,26 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
           ],
           _addressRow(
             isPickup: false,
-            text: widget.bookingData.dropAddress ?? 'Drop location',
+            text: _bookingData.dropAddress ?? 'Drop location',
           ),
           const SizedBox(height: 12),
           Center(
             child: InkWell(
-              onTap: () => Navigator.pop(context),
+              onTap: _editLocations,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: const [
                   Icon(Icons.add_circle, color: Colors.white, size: 20),
                   SizedBox(width: 8),
-                  Text('ADD STOP',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.5)),
+                  Text(
+                    'ADD STOP',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -375,7 +476,7 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
     Widget? trailing,
   }) {
     return InkWell(
-      onTap: () => Navigator.pop(context),
+      onTap: _editLocations,
       child: Row(
         children: [
           // LocationTile centers with LOOSE constraints, so the glyph really
@@ -406,13 +507,12 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          fontSize: 14, color: Color(0xFF3D3D3D)),
+                        fontSize: 14,
+                        color: Color(0xFF3D3D3D),
+                      ),
                     ),
                   ),
-                  if (trailing != null) ...[
-                    const SizedBox(width: 8),
-                    trailing,
-                  ],
+                  if (trailing != null) ...[const SizedBox(width: 8), trailing],
                 ],
               ),
             ),
@@ -442,24 +542,90 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
 
   Widget _buildError() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.error_outline, size: 48, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          Text("Failed to load vehicles", style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
-          const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: _fetchVehicleOptions,
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.appColor),
-            child: const Text("Retry", style: TextStyle(color: Colors.white)),
-          ),
-        ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            if (_availability != null)
+              _availabilityNotice()
+            else ...[
+              Text(
+                _error ??
+                    'Vehicle prices are temporarily unavailable. Please try again.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 12),
+              if (_failure?.retryable != false)
+                ElevatedButton(
+                  onPressed: _fetchVehicleOptions,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.appColor,
+                  ),
+                  child: const Text(
+                    "Retry",
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              TextButton(
+                onPressed: _editLocations,
+                child: const Text('Change locations'),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildVehicleCard(VehicleOption option, int index, {bool isRecommended = false}) {
+  Widget _availabilityNotice() => Padding(
+    padding: const EdgeInsets.only(bottom: 16),
+    child: VehicleAvailabilityNotice(
+      availability: _availability!,
+      serviceType: _bookingData.serviceType,
+      onAction: _recoverTrip,
+    ),
+  );
+
+  Future<void> _recoverTrip(TripRecoveryAction action) async {
+    if (action == TripRecoveryAction.changeLocations) {
+      await _editLocations();
+      return;
+    }
+    if (action == TripRecoveryAction.chooseVehicle && _options.isNotEmpty) {
+      setState(() {
+        _bookingData = applyTripRecovery(_bookingData, action);
+        _acknowledgedPreference = true;
+      });
+      return; // The customer must tap the vehicle they want; no silent replacement.
+    }
+    _bookingData = applyTripRecovery(_bookingData, action);
+    await _fetchVehicleOptions();
+  }
+
+  Future<void> _editLocations() async {
+    if (_isLoading) return;
+    final edited = await Navigator.of(context).push<BookingData>(
+      MaterialPageRoute(
+        builder: (_) => SearchScreen(
+          bookingData: _bookingData,
+          onTripValidated: (data) => Navigator.of(context).pop(data),
+        ),
+      ),
+    );
+    if (!mounted || edited == null) return;
+    _bookingData = edited;
+    await _fetchVehicleOptions();
+  }
+
+  Widget _buildVehicleCard(
+    VehicleOption option,
+    int index, {
+    bool isRecommended = false,
+  }) {
     final isSelected = _selectedIndex == index;
     final hasEstimatedFare = option.estimatedFare > 0;
 
@@ -471,7 +637,10 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
     final boxed = isRecommended || isSelected;
 
     return GestureDetector(
-      onTap: () => setState(() => _selectedIndex = index),
+      onTap: () => setState(() {
+        _selectedIndex = index;
+        _acknowledgedPreference = true;
+      }),
       child: Container(
         margin: EdgeInsets.only(bottom: boxed ? 12 : 0),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
@@ -481,9 +650,9 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
           border: isSelected
               ? Border.all(color: AppColors.appColor, width: 1.5)
               : isRecommended
-                  // Soft outline: still reads as a card, clearly not selected.
-                  ? Border.all(color: const Color(0xFFF3DACB), width: 1.2)
-                  : null,
+              // Soft outline: still reads as a card, clearly not selected.
+              ? Border.all(color: const Color(0xFFF3DACB), width: 1.2)
+              : null,
         ),
         child: Row(
           children: [
@@ -508,14 +677,15 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                       Expanded(
                         child: Text(
                           option.name,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (isRecommended) ...[
-                        const SizedBox(width: 6),
-                      ],
+                      if (isRecommended) ...[const SizedBox(width: 6)],
                     ],
                   ),
                   const SizedBox(height: 3),
@@ -526,7 +696,9 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                     overflow: TextOverflow.ellipsis,
                     text: TextSpan(
                       style: TextStyle(
-                          fontSize: 12.5, color: Colors.grey.shade600),
+                        fontSize: 12.5,
+                        color: Colors.grey.shade600,
+                      ),
                       children: [
                         TextSpan(text: option.capacityLabel),
                         if (option.durationLabel.isNotEmpty &&
@@ -535,13 +707,18 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                           TextSpan(
                             text: option.durationLabel,
                             style: TextStyle(
-                                color: AppColors.appColor,
-                                fontWeight: FontWeight.w600),
+                              color: AppColors.appColor,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ] else ...[
                           TextSpan(
                             text:
-                                '. ${option.allowIntraCity && option.allowInterCity ? 'City & Outstation' : option.allowIntraCity ? 'Within City' : 'Outstation'}',
+                                '. ${option.allowIntraCity && option.allowInterCity
+                                    ? 'City & Outstation'
+                                    : option.allowIntraCity
+                                    ? 'Within City'
+                                    : 'Outstation'}',
                           ),
                         ],
                       ],
@@ -591,9 +768,10 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                   Text(
                     "₹ ${option.discountedFare!.toInt()}",
                     style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF16A34A)),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF16A34A),
+                    ),
                   ),
                 ],
               )
@@ -606,7 +784,10 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                   const SizedBox(height: 6),
                   Text(
                     "₹ ${hasEstimatedFare ? option.estimatedFare.toInt() : option.baseFare.toInt()}",
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ],
               ),
@@ -632,7 +813,11 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
           const SizedBox(width: 4),
           Text(
             '${option.maxWeightKg.toInt()} kg',
-            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Color(0xFF1F2937)),
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1F2937),
+            ),
           ),
         ],
       ),
@@ -650,12 +835,14 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
     final service = option.allowIntraCity && option.allowInterCity
         ? 'Within city & outstation'
         : option.allowIntraCity
-            ? 'Within city'
-            : 'Outstation';
+        ? 'Within city'
+        : 'Outstation';
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
       builder: (ctx) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
@@ -677,35 +864,68 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(option.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                        Text(
+                          option.name,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                         const SizedBox(height: 6),
                         _capacityBadge(option),
                       ],
                     ),
                   ),
-                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close),
+                  ),
                 ],
               ),
               const SizedBox(height: 14),
               if (dims.isNotEmpty) ...[
-                const Text('Load area', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                const Text(
+                  'Load area',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 4),
-                Text(dims.join(' · '), style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+                Text(
+                  dims.join(' · '),
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                ),
                 const SizedBox(height: 12),
               ],
-              const Text('Capacity', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              const Text(
+                'Capacity',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 4),
               Text(
-                option.maxWeightKg > 0 ? 'Up to ${option.maxWeightKg.toInt()} kg' : 'Not specified',
+                option.maxWeightKg > 0
+                    ? 'Up to ${option.maxWeightKg.toInt()} kg'
+                    : 'Not specified',
                 style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
               ),
               const SizedBox(height: 12),
-              const Text('Suitable for', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              const Text(
+                'Suitable for',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 4),
-              Text(service, style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+              Text(
+                service,
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
               if ((option.description ?? '').trim().isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Text(option.description!.trim(), style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35)),
+                Text(
+                  option.description!.trim(),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade700,
+                    height: 1.35,
+                  ),
+                ),
               ],
               const SizedBox(height: 18),
               SizedBox(
@@ -719,9 +939,17 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.appColor,
                     padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  child: const Text('Select this vehicle', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                  child: const Text(
+                    'Select this vehicle',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -729,18 +957,5 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
         ),
       ),
     );
-  }
-
-  Widget _vehicleImage(VehicleOption option) {
-    final imageUrl = option.image ?? option.icon;
-    if (imageUrl != null && imageUrl.isNotEmpty) {
-      return Image.network(
-        ApiUrls.imageProxyUrl(imageUrl),
-        width: 60, height: 45,
-        fit: BoxFit.contain,
-        errorBuilder: (_, _, _) => Icon(Icons.local_shipping, size: 40, color: AppColors.appColor),
-      );
-    }
-    return Icon(Icons.local_shipping, size: 40, color: AppColors.appColor);
   }
 }

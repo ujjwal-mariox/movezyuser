@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:movezy_user_app/Services/vehicle_availability.dart';
 import 'package:http/http.dart' as http;
 import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
@@ -124,7 +126,8 @@ class AddonService {
       price: (json['price'] ?? 0).toDouble(),
       isActive: json['isActive'] ?? true,
       sortOrder: json['sortOrder'] ?? 0,
-      applicableGoodsCategories: (json['applicableGoodsCategories'] as List?)
+      applicableGoodsCategories:
+          (json['applicableGoodsCategories'] as List?)
               ?.map((e) => e.toString())
               .toList() ??
           const [],
@@ -183,6 +186,9 @@ class VehicleOption {
   final int estimatedDuration;
   final bool allowIntraCity;
   final bool allowInterCity;
+  final String? categoryCode;
+  final double minRangeKm;
+  final double maxRangeKm;
   final int sortOrder;
   final bool isRecommended;
   final double score;
@@ -211,6 +217,9 @@ class VehicleOption {
     required this.estimatedDuration,
     this.allowIntraCity = true,
     this.allowInterCity = false,
+    this.categoryCode,
+    this.minRangeKm = 1,
+    this.maxRangeKm = 100,
     this.sortOrder = 0,
     this.isRecommended = false,
     this.score = 0,
@@ -236,6 +245,9 @@ class VehicleOption {
       estimatedDuration: (json['estimatedDuration'] ?? 0).toInt(),
       allowIntraCity: vt['allowIntraCity'] ?? true,
       allowInterCity: vt['allowInterCity'] ?? false,
+      categoryCode: vt['categoryCode'],
+      minRangeKm: (vt['minRangeKm'] as num?)?.toDouble() ?? 1,
+      maxRangeKm: (vt['maxRangeKm'] as num?)?.toDouble() ?? 100,
       sortOrder: vt['sortOrder'] ?? 0,
       isRecommended: json['isRecommended'] ?? false,
       score: (json['score'] ?? 0).toDouble(),
@@ -265,6 +277,55 @@ class VehicleOption {
       return mins > 0 ? "$hours hr $mins mins" : "$hours hr";
     }
     return "$estimatedDuration mins";
+  }
+}
+
+class VehicleOptionsResult {
+  final List<VehicleOption> options;
+  final VehicleAvailability availability;
+  const VehicleOptionsResult({
+    required this.options,
+    required this.availability,
+  });
+
+  factory VehicleOptionsResult.fromJson(
+    Map<String, dynamic> json, {
+    String? preferredVehicleTypeId,
+    String? serviceType,
+  }) {
+    if (json['data'] is! List) {
+      throw const FormatException('Missing vehicle list');
+    }
+    final options = (json['data'] as List)
+        .map((item) => VehicleOption.fromJson(item))
+        .toList();
+    final metadata = json['eligibility'];
+    return VehicleOptionsResult(
+      options: options,
+      availability: metadata is Map<String, dynamic>
+          ? VehicleAvailability.fromJson(metadata)
+          : VehicleAvailability(
+              code: options.isEmpty ? 'NO_MATCHING_VEHICLES' : 'AVAILABLE',
+              message: options.isEmpty
+                  ? 'No vehicles are available for these locations and service. Change locations or check again later.'
+                  : null,
+              distanceKm: options.isEmpty ? null : options.first.distanceKm,
+              availableCount: options.length,
+              withinCityAvailableCount: serviceType == 'OUTSTATION'
+                  ? 0
+                  : options.length,
+              outstationAvailableCount: options
+                  .where((o) => o.categoryCode != '2W' && o.allowInterCity)
+                  .length,
+              preferredCode: preferredVehicleTypeId == null
+                  ? null
+                  : options.any(
+                      (o) => o.vehicleTypeId == preferredVehicleTypeId,
+                    )
+                  ? 'AVAILABLE'
+                  : 'VEHICLE_UNAVAILABLE',
+            ),
+    );
   }
 }
 
@@ -335,8 +396,8 @@ class FareEstimate {
     // totalDiscount is present-but-0 there and the real figure is the
     // top-level promoDiscount. `??` doesn't fall through on 0, so prefer
     // whichever is non-zero — or View Breakup never shows the discount row.
-    final breakdownDiscount =
-        (fare['totalDiscount'] ?? fare['discount'] ?? 0).toDouble();
+    final breakdownDiscount = (fare['totalDiscount'] ?? fare['discount'] ?? 0)
+        .toDouble();
     final topLevelDiscount = (json['promoDiscount'] ?? 0).toDouble();
     return FareEstimate(
       baseFare: (fare['baseFare'] ?? 0).toDouble(),
@@ -348,12 +409,15 @@ class FareEstimate {
       loadingUnloadingCharge: (fare['loadingUnloadingCharge'] ?? 0).toDouble(),
       tollCharges: (fare['tollCharges'] ?? 0).toDouble(),
       gst: (fare['gstAmount'] ?? fare['gst'] ?? json['gst'] ?? 0).toDouble(),
-      totalFare: (fare['subtotal'] ?? fare['totalFare'] ?? json['totalFare'] ?? 0).toDouble(),
-      discount:
-          breakdownDiscount > 0 ? breakdownDiscount : topLevelDiscount,
+      totalFare:
+          (fare['subtotal'] ?? fare['totalFare'] ?? json['totalFare'] ?? 0)
+              .toDouble(),
+      discount: breakdownDiscount > 0 ? breakdownDiscount : topLevelDiscount,
       userDiscount: (json['userDiscount'] ?? 0).toDouble(),
       coinDiscount: (json['coinDiscount'] ?? 0).toDouble(),
-      finalFare: (json['finalAmount'] ?? json['finalFare'] ?? fare['finalFare'] ?? 0).toDouble(),
+      finalFare:
+          (json['finalAmount'] ?? json['finalFare'] ?? fare['finalFare'] ?? 0)
+              .toDouble(),
       distanceKm: (json['distanceKm'] ?? fare['distanceKm'] ?? 0).toDouble(),
       durationMin: (json['durationMin'] ?? fare['durationMin'] ?? 0).toDouble(),
       freeWaitingMinutes:
@@ -397,7 +461,9 @@ class PromoOffer {
       description: json['description'] ?? '',
       discountType: json['discountType'] ?? 'PERCENTAGE',
       discountValue: (json['discountValue'] ?? 0).toDouble(),
-      maxDiscount: json['maxDiscount'] != null ? (json['maxDiscount']).toDouble() : null,
+      maxDiscount: json['maxDiscount'] != null
+          ? (json['maxDiscount']).toDouble()
+          : null,
       minOrderValue: (json['minOrderValue'] ?? 0).toDouble(),
       validFrom: json['validFrom'] ?? json['startDate'] ?? '',
       validTo: json['validTo'] ?? json['expiresAt'] ?? json['endDate'] ?? '',
@@ -406,7 +472,9 @@ class PromoOffer {
 
   String get displayText {
     if (discountType == 'PERCENTAGE') {
-      final maxStr = maxDiscount != null ? ' (max ₹${maxDiscount!.toInt()})' : '';
+      final maxStr = maxDiscount != null
+          ? ' (max ₹${maxDiscount!.toInt()})'
+          : '';
       return '${discountValue.toInt()}% OFF$maxStr';
     }
     return '₹${discountValue.toInt()} OFF';
@@ -428,10 +496,9 @@ class BookingService {
   static Future<List<GoodsType>> getGoodsTypes() async {
     final headers = _headers();
     final url = ApiUrls.goodsTypesUrl;
-    final res = await http.get(
-      Uri.parse(url),
-      headers: headers,
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .get(Uri.parse(url), headers: headers)
+        .timeout(const Duration(seconds: 30));
     if (res.statusCode == 200) {
       final body = json.decode(res.body);
       final rawData = body['data'];
@@ -446,10 +513,9 @@ class BookingService {
   /// Fetch add-on services from backend
   static Future<List<AddonService>> getAddonServices() async {
     final url = ApiUrls.addonServicesUrl;
-    final res = await http.get(
-      Uri.parse(url),
-      headers: _headers(),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .get(Uri.parse(url), headers: _headers())
+        .timeout(const Duration(seconds: 30));
     if (res.statusCode == 200) {
       final body = json.decode(res.body);
       final rawData = body['data'];
@@ -464,10 +530,9 @@ class BookingService {
   /// Fetch prohibited items from backend
   static Future<List<ProhibitedItem>> getProhibitedItems() async {
     final url = ApiUrls.prohibitedItemsUrl;
-    final res = await http.get(
-      Uri.parse(url),
-      headers: _headers(),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .get(Uri.parse(url), headers: _headers())
+        .timeout(const Duration(seconds: 30));
     if (res.statusCode == 200) {
       final body = json.decode(res.body);
       final rawData = body['data'];
@@ -485,17 +550,39 @@ class BookingService {
     required Map<String, dynamic> drop,
     String? serviceType,
     String? goodsTypeId,
+
     /// Intermediate stops. Without these the prices on this screen leave out
     /// both the detour distance and the per-stop charge, so the fare jumps on
     /// the next screen.
     List<Map<String, dynamic>>? stops,
+
     /// The vehicle chosen on the home screen — the server pins it to the top
     /// of the list as recommended.
     String? preferredVehicleTypeId,
+  }) async => (await getVehicleOptionsResult(
+    pickup: pickup,
+    drop: drop,
+    serviceType: serviceType,
+    goodsTypeId: goodsTypeId,
+    stops: stops,
+    preferredVehicleTypeId: preferredVehicleTypeId,
+  )).options;
+
+  /// Also returns route eligibility, even when no vehicle can cover the trip.
+  /// The locations screen uses eligibilityOnly to avoid quoting every rate card.
+  static Future<VehicleOptionsResult> getVehicleOptionsResult({
+    required Map<String, dynamic> pickup,
+    required Map<String, dynamic> drop,
+    String? serviceType,
+    String? goodsTypeId,
+    List<Map<String, dynamic>>? stops,
+    String? preferredVehicleTypeId,
+    bool eligibilityOnly = false,
   }) async {
     final body = {
       'pickup': pickup,
       'drop': drop,
+      if (eligibilityOnly) 'eligibilityOnly': true,
       if (stops != null && stops.isNotEmpty) 'stops': stops,
       if (serviceType != null) 'serviceType': serviceType,
       if (goodsTypeId != null) 'goodsTypeId': goodsTypeId,
@@ -503,18 +590,79 @@ class BookingService {
         'preferredVehicleTypeId': preferredVehicleTypeId,
     };
 
-    final res = await http.post(
-      Uri.parse(ApiUrls.vehicleOptionsUrl),
-      headers: _headers(),
-      body: json.encode(body),
-    ).timeout(const Duration(seconds: 30));
+    try {
+      final res = await http
+          .post(
+            Uri.parse(ApiUrls.vehicleOptionsUrl),
+            headers: _headers(),
+            body: json.encode(body),
+          )
+          .timeout(const Duration(seconds: 30));
 
-    if (res.statusCode == 200) {
-      final data = json.decode(res.body);
-      final list = data['data'] as List? ?? [];
-      return list.map((item) => VehicleOption.fromJson(item)).toList();
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        throw const VehicleOptionsException(
+          'SESSION_EXPIRED',
+          'Your session has expired. Please sign in again.',
+          retryable: false,
+        );
+      }
+      final dynamic decoded;
+      try {
+        decoded = json.decode(res.body);
+      } catch (_) {
+        throw const VehicleOptionsException(
+          'SERVICE_UNAVAILABLE',
+          'Vehicle prices are temporarily unavailable. Please try again.',
+        );
+      }
+      if (decoded is! Map<String, dynamic>) {
+        throw const VehicleOptionsException(
+          'SERVICE_UNAVAILABLE',
+          'Vehicle prices are temporarily unavailable. Please try again.',
+        );
+      }
+      if (res.statusCode == 200 && decoded['success'] != false) {
+        try {
+          return VehicleOptionsResult.fromJson(
+            decoded,
+            preferredVehicleTypeId: preferredVehicleTypeId,
+            serviceType: serviceType,
+          );
+        } catch (_) {
+          throw const VehicleOptionsException(
+            'SERVICE_UNAVAILABLE',
+            'Vehicle prices are temporarily unavailable. Please try again.',
+          );
+        }
+      }
+      final code = (decoded['code'] ?? 'SERVICE_UNAVAILABLE').toString();
+      const locationCodes = [
+        'INVALID_LOCATIONS',
+        'SAME_LOCATION',
+        'INVALID_SERVICE',
+      ];
+      final message =
+          locationCodes.contains(code) || code == 'ROUTE_UNAVAILABLE'
+          ? (decoded['message'] ??
+                    'Choose your pickup, drop and stops on the map.')
+                .toString()
+          : 'Vehicle prices are temporarily unavailable. Please try again.';
+      throw VehicleOptionsException(
+        code,
+        message,
+        retryable: !locationCodes.contains(code),
+      );
+    } on TimeoutException {
+      throw const VehicleOptionsException(
+        'CONNECTION',
+        'Checking your trip took too long. Check your connection and try again.',
+      );
+    } on http.ClientException {
+      throw const VehicleOptionsException(
+        'CONNECTION',
+        'We could not connect to Movezy. Check your internet connection and try again.',
+      );
     }
-    throw Exception('Failed to get vehicle options: ${res.statusCode}');
   }
 
   /// Get fare estimate from backend
@@ -531,6 +679,7 @@ class BookingService {
     int? pickupFloor,
     int? dropFloor,
     bool? isLiftAvailable,
+
     /// Declared load in kg. PER_KG add-ons are priced from this; without it the
     /// server can only bill a single flat unit.
     int? goodsWeight,
@@ -551,11 +700,13 @@ class BookingService {
       },
     };
 
-    final res = await http.post(
-      Uri.parse(ApiUrls.fareEstimateUrl),
-      headers: _headers(),
-      body: json.encode(body),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .post(
+          Uri.parse(ApiUrls.fareEstimateUrl),
+          headers: _headers(),
+          body: json.encode(body),
+        )
+        .timeout(const Duration(seconds: 30));
     if (res.statusCode == 200) {
       final data = json.decode(res.body);
       return FareEstimate.fromJson(data['data'] ?? data);
@@ -594,16 +745,18 @@ class BookingService {
     int? pickupFloor,
     int? dropFloor,
     bool? isLiftAvailable,
+
     /// Must match the weight the quote was priced on.
     int? goodsWeight,
+
     /// Number of packages declared on the quantity steppers. Stored by the
     /// backend and shown to the driver, but nothing ever sent it.
     int? goodsQuantity,
   }) async {
     final body = {
-      'pickupLocation': { 'lat': pickup['lat'], 'lng': pickup['lng'] },
+      'pickupLocation': {'lat': pickup['lat'], 'lng': pickup['lng']},
       'pickupAddress': pickup['address'] ?? 'Pickup Location',
-      'dropLocation': { 'lat': drop['lat'], 'lng': drop['lng'] },
+      'dropLocation': {'lat': drop['lat'], 'lng': drop['lng']},
       'dropAddress': drop['address'] ?? 'Drop Location',
       'vehicleTypeId': vehicleTypeId,
       'goodsType': goodsType,
@@ -632,11 +785,13 @@ class BookingService {
         'scheduledTimeSlotId': scheduledTimeSlotId,
     };
 
-    final res = await http.post(
-      Uri.parse(ApiUrls.createBookingUrl),
-      headers: _headers(),
-      body: json.encode(body),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .post(
+          Uri.parse(ApiUrls.createBookingUrl),
+          headers: _headers(),
+          body: json.encode(body),
+        )
+        .timeout(const Duration(seconds: 30));
     final data = json.decode(res.body);
     if (res.statusCode == 200 || res.statusCode == 201) {
       return data;
@@ -646,10 +801,9 @@ class BookingService {
 
   /// Get available promo codes
   static Future<List<PromoOffer>> getAvailablePromos() async {
-    final res = await http.get(
-      Uri.parse(ApiUrls.availablePromosUrl),
-      headers: _headers(),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .get(Uri.parse(ApiUrls.availablePromosUrl), headers: _headers())
+        .timeout(const Duration(seconds: 30));
     if (res.statusCode == 200) {
       final body = json.decode(res.body);
       final rawData = body['data'];
@@ -669,25 +823,29 @@ class BookingService {
     String? vehicleTypeId,
     String? serviceType,
   }) async {
-    final res = await http.post(
-      Uri.parse(ApiUrls.validatePromoUrl),
-      headers: _headers(),
-      body: json.encode({
-        'code': code,
-        'amount': orderAmount,
-        if (vehicleTypeId != null) 'vehicleTypeId': vehicleTypeId,
-        if (serviceType != null) 'serviceType': serviceType,
-      }),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .post(
+          Uri.parse(ApiUrls.validatePromoUrl),
+          headers: _headers(),
+          body: json.encode({
+            'code': code,
+            'amount': orderAmount,
+            if (vehicleTypeId != null) 'vehicleTypeId': vehicleTypeId,
+            if (serviceType != null) 'serviceType': serviceType,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
     return json.decode(res.body);
   }
 
   /// Get booking detail by ID
   static Future<Map<String, dynamic>> getBookingById(String bookingId) async {
-    final res = await http.get(
-      Uri.parse(ApiUrls.bookingDetailUrl(bookingId)),
-      headers: _headers(),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .get(
+          Uri.parse(ApiUrls.bookingDetailUrl(bookingId)),
+          headers: _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
     final data = json.decode(res.body);
     if (res.statusCode == 200 && data['success'] == true) {
       return data['data'];
@@ -697,11 +855,15 @@ class BookingService {
 
   /// Create a Razorpay order for an online booking payment.
   /// Returns { orderId, amount, currency, bookingNumber }.
-  static Future<Map<String, dynamic>> createPaymentOrder(String bookingId) async {
-    final res = await http.post(
-      Uri.parse(ApiUrls.bookingPaymentOrderUrl(bookingId)),
-      headers: _headers(),
-    ).timeout(const Duration(seconds: 30));
+  static Future<Map<String, dynamic>> createPaymentOrder(
+    String bookingId,
+  ) async {
+    final res = await http
+        .post(
+          Uri.parse(ApiUrls.bookingPaymentOrderUrl(bookingId)),
+          headers: _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
     final data = json.decode(res.body);
     if (res.statusCode == 200 && data['success'] == true) {
       return Map<String, dynamic>.from(data['data']);
@@ -740,10 +902,12 @@ class BookingService {
   /// unless this succeeds — the booking must not be treated as paid otherwise.
   static Future<(bool, String)> payWithWallet(String bookingId) async {
     try {
-      final res = await http.post(
-        Uri.parse(ApiUrls.bookingWalletPayUrl(bookingId)),
-        headers: _headers(),
-      ).timeout(const Duration(seconds: 30));
+      final res = await http
+          .post(
+            Uri.parse(ApiUrls.bookingWalletPayUrl(bookingId)),
+            headers: _headers(),
+          )
+          .timeout(const Duration(seconds: 30));
       final data = json.decode(res.body);
       final ok = res.statusCode == 200 && data['success'] == true;
       return (ok, (data['message'] ?? '').toString());
@@ -760,25 +924,26 @@ class BookingService {
     required String paymentId,
     required String signature,
   }) async {
-    final res = await http.post(
-      Uri.parse(ApiUrls.bookingPaymentVerifyUrl(bookingId)),
-      headers: _headers(),
-      body: json.encode({
-        'orderId': orderId,
-        'paymentId': paymentId,
-        'signature': signature,
-      }),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .post(
+          Uri.parse(ApiUrls.bookingPaymentVerifyUrl(bookingId)),
+          headers: _headers(),
+          body: json.encode({
+            'orderId': orderId,
+            'paymentId': paymentId,
+            'signature': signature,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
     final data = json.decode(res.body);
     return res.statusCode == 200 && data['success'] == true;
   }
 
   /// Track booking (polls for status, driver location, ETA)
   static Future<Map<String, dynamic>> trackBooking(String bookingId) async {
-    final res = await http.get(
-      Uri.parse(ApiUrls.bookingTrackUrl(bookingId)),
-      headers: _headers(),
-    ).timeout(const Duration(seconds: 15));
+    final res = await http
+        .get(Uri.parse(ApiUrls.bookingTrackUrl(bookingId)), headers: _headers())
+        .timeout(const Duration(seconds: 15));
     final data = json.decode(res.body);
     if (res.statusCode == 200 && data['success'] == true) {
       return data['data'];
@@ -793,12 +958,18 @@ class BookingService {
   /// app must ask rather than state a number of its own. Returns null when the
   /// preview can't be loaded — callers then warn generically instead of
   /// inventing a figure.
-  static Future<Map<String, dynamic>?> cancellationPreview(String bookingId) async {
+  static Future<Map<String, dynamic>?> cancellationPreview(
+    String bookingId,
+  ) async {
     try {
-      final res = await http.get(
-        Uri.parse('${ApiUrls.baseUrlApi}/bookings/$bookingId/cancellation-preview'),
-        headers: _headers(),
-      ).timeout(const Duration(seconds: 15));
+      final res = await http
+          .get(
+            Uri.parse(
+              '${ApiUrls.baseUrlApi}/bookings/$bookingId/cancellation-preview',
+            ),
+            headers: _headers(),
+          )
+          .timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) return null;
       final data = json.decode(res.body);
       if (data is Map && data['success'] == true && data['data'] is Map) {
@@ -810,16 +981,21 @@ class BookingService {
     }
   }
 
-  static Future<Map<String, dynamic>> cancelBooking(String bookingId, {String? cancellationReasonId}) async {
+  static Future<Map<String, dynamic>> cancelBooking(
+    String bookingId, {
+    String? cancellationReasonId,
+  }) async {
     final body = <String, dynamic>{};
     if (cancellationReasonId != null) {
       body['cancellationReasonId'] = cancellationReasonId;
     }
-    final res = await http.post(
-      Uri.parse(ApiUrls.bookingCancelUrl(bookingId)),
-      headers: _headers(),
-      body: json.encode(body),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .post(
+          Uri.parse(ApiUrls.bookingCancelUrl(bookingId)),
+          headers: _headers(),
+          body: json.encode(body),
+        )
+        .timeout(const Duration(seconds: 30));
     final data = json.decode(res.body);
     if (res.statusCode == 200 && data['success'] == true) {
       return data;
@@ -842,19 +1018,21 @@ class BookingService {
     String? contactName,
     String? contactPhone,
   }) async {
-    final res = await http.post(
-      Uri.parse(ApiUrls.bookingAddStopUrl(bookingId)),
-      headers: _headers(),
-      body: json.encode({
-        'address': address,
-        'lat': lat,
-        'lng': lng,
-        if (contactName != null && contactName.trim().isNotEmpty)
-          'contactName': contactName.trim(),
-        if (contactPhone != null && contactPhone.trim().isNotEmpty)
-          'contactPhone': contactPhone.trim(),
-      }),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .post(
+          Uri.parse(ApiUrls.bookingAddStopUrl(bookingId)),
+          headers: _headers(),
+          body: json.encode({
+            'address': address,
+            'lat': lat,
+            'lng': lng,
+            if (contactName != null && contactName.trim().isNotEmpty)
+              'contactName': contactName.trim(),
+            if (contactPhone != null && contactPhone.trim().isNotEmpty)
+              'contactPhone': contactPhone.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
     final data = json.decode(res.body);
     if (res.statusCode == 200 && data['success'] == true) {
       return Map<String, dynamic>.from(data['data'] ?? {});
@@ -864,10 +1042,9 @@ class BookingService {
 
   /// Get cancellation reasons from backend
   static Future<List<CancellationReason>> getCancellationReasons() async {
-    final res = await http.get(
-      Uri.parse(ApiUrls.cancellationReasonsUrl),
-      headers: _headers(),
-    ).timeout(const Duration(seconds: 15));
+    final res = await http
+        .get(Uri.parse(ApiUrls.cancellationReasonsUrl), headers: _headers())
+        .timeout(const Duration(seconds: 15));
     if (res.statusCode == 200) {
       final body = json.decode(res.body);
       final rawData = body['data'];
@@ -879,10 +1056,12 @@ class BookingService {
 
   /// Get booking invoice
   static Future<Map<String, dynamic>> getInvoice(String bookingId) async {
-    final res = await http.get(
-      Uri.parse(ApiUrls.bookingInvoiceUrl(bookingId)),
-      headers: _headers(),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .get(
+          Uri.parse(ApiUrls.bookingInvoiceUrl(bookingId)),
+          headers: _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
     final data = json.decode(res.body);
     if (res.statusCode == 200 && data['success'] == true) {
       return data['data'];
@@ -891,7 +1070,8 @@ class BookingService {
   }
 
   /// Rate a booking
-  static Future<void> rateBooking(String bookingId, {
+  static Future<void> rateBooking(
+    String bookingId, {
     required int rating,
     String? review,
     List<String>? feedback,
@@ -901,11 +1081,13 @@ class BookingService {
     if (review != null) body['review'] = review;
     if (feedback != null && feedback.isNotEmpty) body['feedback'] = feedback;
     if (comment != null && comment.isNotEmpty) body['comment'] = comment;
-    final res = await http.post(
-      Uri.parse(ApiUrls.bookingRateUrl(bookingId)),
-      headers: _headers(),
-      body: json.encode(body),
-    ).timeout(const Duration(seconds: 30));
+    final res = await http
+        .post(
+          Uri.parse(ApiUrls.bookingRateUrl(bookingId)),
+          headers: _headers(),
+          body: json.encode(body),
+        )
+        .timeout(const Duration(seconds: 30));
     final data = json.decode(res.body);
     if (res.statusCode != 200) {
       throw Exception(data['message'] ?? 'Failed to submit rating');
@@ -954,9 +1136,9 @@ class TimeSlotOption {
   });
 
   factory TimeSlotOption.fromJson(Map<String, dynamic> j) => TimeSlotOption(
-        id: (j['_id'] ?? '').toString(),
-        label: (j['label'] ?? '').toString(),
-        startTime: (j['startTime'] ?? '').toString(),
-        scheduledAt: DateTime.tryParse((j['scheduledAt'] ?? '').toString()),
-      );
+    id: (j['_id'] ?? '').toString(),
+    label: (j['label'] ?? '').toString(),
+    startTime: (j['startTime'] ?? '').toString(),
+    scheduledAt: DateTime.tryParse((j['scheduledAt'] ?? '').toString()),
+  );
 }
