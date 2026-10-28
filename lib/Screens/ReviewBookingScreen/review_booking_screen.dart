@@ -14,6 +14,7 @@ import 'package:movezy_user_app/CommonWidgets/booking_terms_sheet.dart';
 import 'package:movezy_user_app/Screens/DashboardScreen/dashboard_screen.dart';
 import 'package:movezy_user_app/Screens/RideFindingScreen/ride_finding_screen.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
+import 'package:movezy_user_app/Screens/ReceiverDetailsScreen/receiver_details_screen.dart';
 import 'package:movezy_user_app/Screens/VehicleSelectionScreen/vehicle_selection_screen.dart';
 import 'package:movezy_user_app/Services/booking_service.dart';
 import 'package:movezy_user_app/Services/wallet_service.dart';
@@ -192,8 +193,9 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   bool _showAllSlots = false;
   // Slots are only shown when the customer opts in; unchecked = pick up now.
   bool _scheduleLater = false;
-  // Consignee (who receives the parcel at the drop). Optional: when a phone is
-  // given, the backend SMSs them at pickup — they have no app account.
+  // Consignee (who receives the parcel at the drop), collected on the receiver
+  // step before checkout and editable from the address card. Optional: when a
+  // phone is given, the backend SMSs them at pickup — they have no app account.
   final TextEditingController _receiverNameController = TextEditingController();
   final TextEditingController _receiverPhoneController = TextEditingController();
 
@@ -215,7 +217,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   void initState() {
     super.initState();
     _goodsCategory = widget.bookingData.goodsCategory;
-    // Receiver captured with the locations; still editable here.
+    // Receiver captured on the receiver step; still editable here.
     _receiverNameController.text = widget.bookingData.receiverName ?? '';
     _receiverPhoneController.text = widget.bookingData.receiverPhone ?? '';
     // The goods type chosen on its own screen already answers
@@ -1244,9 +1246,69 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          Image.asset("assets/dotted_line.png", height: 1),
+          const SizedBox(height: 10),
+          _receiverRow(),
         ],
       ),
     );
+  }
+
+  /// Who receives the goods, as answered on the receiver step, with Edit
+  /// reopening that screen (in edit mode, so this page and its selections
+  /// stay as they are).
+  Widget _receiverRow() {
+    final name = _receiverNameController.text.trim();
+    final phone = _receiverPhoneController.text.trim();
+    final summary = [name, phone].where((s) => s.isNotEmpty).join('  ·  ');
+    return Row(
+      children: [
+        Icon(Icons.person_outline, size: AppIconSize.md, color: Colors.grey.shade700),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Receiver',
+                  style: GoogleFonts.poppins(
+                      fontSize: 11.5, color: Colors.grey.shade600)),
+              Text(summary.isEmpty ? 'You (no separate receiver)' : summary,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                      fontSize: 13, fontWeight: FontWeight.w500)),
+            ],
+          ),
+        ),
+        GestureDetector(
+          onTap: _editReceiver,
+          child: Text('Edit',
+              style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF1668E3))),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _editReceiver() async {
+    final result = await pushTo(
+      context,
+      ReceiverDetailsScreen(
+        bookingData: widget.bookingData.copyWith(
+          receiverName: _receiverNameController.text.trim(),
+          receiverPhone: _receiverPhoneController.text.trim(),
+        ),
+        editOnly: true,
+      ),
+    );
+    if (!mounted || result is! ReceiverDetailsResult) return;
+    setState(() {
+      _receiverNameController.text = result.name;
+      _receiverPhoneController.text = result.phone;
+    });
   }
 
   /// Read-only recap of what step 0 collected, with a Change link back to the
@@ -1346,8 +1408,8 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                           _serviceFlowComplete
                               // `durationMin` is the quote's estimate for the
                               // whole pickup → drop run (road distance at a
-                              // city speed) — the same figure the time charge
-                              // is priced on. It says nothing about how long
+                              // city speed); it is not billed (the fare is
+                              // Base + KM). It says nothing about how long
                               // until a driver reaches you, yet this read
                               // "~N mins away", word for word the Home
                               // screen's driver-arrival ETA.
@@ -2133,14 +2195,35 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
     final fare = _fare;
     if (fare == null) return;
 
+    // The trip fare is Base + KM, spelled out so the customer can check it:
+    // the base covers the first includedKm and only the rest is billed per
+    // km. "Distance (10.0 km) ₹90" used to read as wrong because those 10 km
+    // were never all billed, and a separate time charge was added on top.
+    // Kilometres to two decimals, because that is what is billed.
+    String plain(double v) =>
+        v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+    final priced = fare.perKmRate > 0;
     final rows = <Widget>[
-      _fareRow('Base fare', '₹${fare.baseFare.toStringAsFixed(2)}'),
-      _fareRow('Distance (${fare.distanceKm.toStringAsFixed(1)} km)',
+      _fareRow(
+          priced && fare.includedKm > 0
+              ? 'Base fare (incl. first ${plain(fare.includedKm)} km)'
+              : 'Base fare',
+          '₹${fare.baseFare.toStringAsFixed(2)}'),
+      _fareRow(
+          priced
+              ? 'Distance ${fare.chargeableKm.toStringAsFixed(2)} km × ₹${plain(fare.perKmRate)}/km'
+              : 'Distance (${fare.distanceKm.toStringAsFixed(1)} km)',
           '₹${fare.distanceCharge.toStringAsFixed(2)}'),
-      _fareRow('Time (${fare.durationMin.toStringAsFixed(0)} min)',
-          '₹${fare.timeCharge.toStringAsFixed(2)}'),
+      // Only quotes from before the Base + KM rule carry a time charge.
+      if (fare.timeCharge > 0)
+        _fareRow('Time (${fare.durationMin.toStringAsFixed(0)} min)',
+            '₹${fare.timeCharge.toStringAsFixed(2)}'),
       if (fare.surgeCharge > 0)
-        _fareRow('Surge', '₹${fare.surgeCharge.toStringAsFixed(2)}'),
+        _fareRow(
+            fare.surgeMultiplier > 1
+                ? 'Surge (×${plain(fare.surgeMultiplier)})'
+                : 'Surge',
+            '₹${fare.surgeCharge.toStringAsFixed(2)}'),
       if (fare.stopCharges > 0)
         _fareRow('Extra stops', '₹${fare.stopCharges.toStringAsFixed(2)}'),
       if (fare.addonCharges > 0)
@@ -2150,7 +2233,16 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
             '₹${fare.loadingUnloadingCharge.toStringAsFixed(2)}'),
       if (fare.tollCharges > 0)
         _fareRow('Tolls', '₹${fare.tollCharges.toStringAsFixed(2)}'),
-      if (fare.gst > 0) _fareRow('GST', '₹${fare.gst.toStringAsFixed(2)}'),
+      if (fare.minimumFareAdjustment > 0)
+        _fareRow('Minimum fare adjustment',
+            '₹${fare.minimumFareAdjustment.toStringAsFixed(2)}'),
+      _fareRow('Subtotal', '₹${fare.totalFare.toStringAsFixed(2)}', bold: true),
+      if (fare.gst > 0)
+        _fareRow(
+            fare.gstPercentage > 0
+                ? 'GST (${plain(fare.gstPercentage)}%)'
+                : 'GST',
+            '₹${fare.gst.toStringAsFixed(2)}'),
       if (fare.discount > 0)
         _fareRow('Discount', '-₹${fare.discount.toStringAsFixed(2)}',
             color: Colors.green),
@@ -2196,6 +2288,15 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                   child: Text('Fare Breakup',
                       style: GoogleFonts.poppins(
                           fontSize: 14, fontWeight: FontWeight.w600)),
+                ),
+                const SizedBox(height: 2),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Trip distance ${fare.distanceKm.toStringAsFixed(2)} km (by road)',
+                    style: GoogleFonts.poppins(
+                        fontSize: 11.5, color: Colors.grey.shade600),
+                  ),
                 ),
                 const SizedBox(height: 14),
                 // Only the line items scroll. The Total below stays pinned, so
@@ -2725,42 +2826,13 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              // Goods description + consignee. These lived in a widget that was
-              // never mounted, so neither could ever be filled in — receiver
-              // SMS silently never fired even though createBooking sends both.
+              // Goods description. (The receiver used to be asked here too, in
+              // a block only a loading add-on revealed; it now has its own step
+              // before checkout and shows on the address card.)
               TextField(
                 controller: _goodsDescController,
                 decoration: _svcFieldDecoration('Describe your goods (optional)'),
                 style: GoogleFonts.poppins(fontSize: 13),
-              ),
-              const SizedBox(height: 12),
-              Text('Receiver details (optional)',
-                  style: GoogleFonts.poppins(
-                      fontSize: 13, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 2),
-              Text("We'll text them when the parcel is on its way",
-                  style: GoogleFonts.poppins(
-                      fontSize: 11, color: Colors.grey.shade600)),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _receiverNameController,
-                      decoration: _svcFieldDecoration("Receiver's name"),
-                      style: GoogleFonts.poppins(fontSize: 13),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _receiverPhoneController,
-                      keyboardType: TextInputType.phone,
-                      decoration: _svcFieldDecoration('Phone'),
-                      style: GoogleFonts.poppins(fontSize: 13),
-                    ),
-                  ),
-                ],
               ),
             ],
           ],
@@ -3509,7 +3581,8 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _addressInfoItem(Icons.route, '${_fare!.distanceKm.toStringAsFixed(1)} km', 'Distance'),
+                    // Same two decimals as the fare breakup, so the two never disagree.
+                    _addressInfoItem(Icons.route, '${_fare!.distanceKm.toStringAsFixed(2)} km', 'Distance'),
                     Container(width: 1, height: 30, color: Colors.grey.shade300),
                     _addressInfoItem(Icons.access_time, '~${_fare!.durationMin.toInt()} min', 'Est. Time'),
                   ],

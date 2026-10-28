@@ -357,6 +357,19 @@ class FareEstimate {
   final double distanceKm;
   final double durationMin;
 
+  /// What the distance line was priced from: the base fare covers the first
+  /// [includedKm], the remaining [chargeableKm] are billed at [perKmRate].
+  /// 0 from a server that predates these fields — the breakup then falls back
+  /// to the plain "Distance (x km)" label.
+  final double perKmRate;
+  final double includedKm;
+  final double chargeableKm;
+
+  /// Top-up to the vehicle's minimum fare, its own line so the rows add up.
+  final double minimumFareAdjustment;
+  final double surgeMultiplier;
+  final double gstPercentage;
+
   /// Real free-loading terms from FareConfig — the same values the server bills
   /// from. The app used to hardcode these (and contradicted itself: "50 mins"
   /// and "65 mins" on one screen, "60 minutes" in the terms) while the server
@@ -385,6 +398,12 @@ class FareEstimate {
     required this.finalFare,
     required this.distanceKm,
     required this.durationMin,
+    this.perKmRate = 0,
+    this.includedKm = 0,
+    this.chargeableKm = 0,
+    this.minimumFareAdjustment = 0,
+    this.surgeMultiplier = 1,
+    this.gstPercentage = 0,
     this.freeWaitingMinutes = 0,
     this.waitingChargePerMin = 0,
     this.coinsToEarn = 0,
@@ -420,6 +439,13 @@ class FareEstimate {
               .toDouble(),
       distanceKm: (json['distanceKm'] ?? fare['distanceKm'] ?? 0).toDouble(),
       durationMin: (json['durationMin'] ?? fare['durationMin'] ?? 0).toDouble(),
+      perKmRate: (fare['perKmRate'] as num?)?.toDouble() ?? 0,
+      includedKm: (fare['includedKm'] as num?)?.toDouble() ?? 0,
+      chargeableKm: (fare['chargeableKm'] as num?)?.toDouble() ?? 0,
+      minimumFareAdjustment:
+          (fare['minimumFareAdjustment'] as num?)?.toDouble() ?? 0,
+      surgeMultiplier: (fare['surgeMultiplier'] as num?)?.toDouble() ?? 1,
+      gstPercentage: (fare['gstPercentage'] as num?)?.toDouble() ?? 0,
       freeWaitingMinutes:
           (fare['freeWaitingMinutes'] ?? json['freeWaitingMinutes'] ?? 0)
               .toInt(),

@@ -8,7 +8,7 @@ import 'package:movezy_user_app/Services/vehicle_availability.dart';
 import 'package:movezy_user_app/CommonWidgets/vehicle_dimension_figure.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/home_page_model.dart';
-import 'package:movezy_user_app/Screens/ReviewBookingScreen/review_booking_screen.dart';
+import 'package:movezy_user_app/Screens/ReceiverDetailsScreen/receiver_details_screen.dart';
 import 'package:movezy_user_app/Services/booking_service.dart';
 import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 
@@ -325,28 +325,7 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                onPressed: _selectedIndex != null
-                    ? () {
-                        final selected = _options[_selectedIndex!];
-                        final vehicle = _toHomeVehicleType(selected);
-                        final updatedData = _bookingData.copyWith(
-                          selectedVehicle: vehicle,
-                          clearFareEstimate: true,
-                        );
-                        // Straight to Review. The old LoadAssistScreen sat here
-                        // unconditionally — every customer saw a page titled
-                        // "Load Assist" whether or not they wanted loading help,
-                        // which is exactly what the client asked to stop. Its
-                        // content was redundant too: goods category is already
-                        // set on the delivery-category screen, and Review
-                        // re-collects weight on its quantity steppers. Load
-                        // Assist now opens only from the add-on toggle.
-                        pushTo(
-                          context,
-                          ReviewBookingScreen(bookingData: updatedData),
-                        );
-                      }
-                    : null,
+                onPressed: _selectedIndex != null ? _openReceiverStep : null,
                 child: Text(
                   _selectedIndex != null ? "Next" : "Select a vehicle",
                   style: const TextStyle(
@@ -604,6 +583,31 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
     }
     _bookingData = applyTripRecovery(_bookingData, action);
     await _fetchVehicleOptions();
+  }
+
+  /// Next → the receiver step, which opens checkout itself. (The old
+  /// LoadAssistScreen that sat here unconditionally is gone: Load Assist opens
+  /// only from the add-on toggle on checkout.)
+  Future<void> _openReceiverStep() async {
+    final selected = _options[_selectedIndex!];
+    final updatedData = _bookingData.copyWith(
+      selectedVehicle: _toHomeVehicleType(selected),
+      clearFareEstimate: true,
+    );
+    final result = await pushTo(
+      context,
+      ReceiverDetailsScreen(bookingData: updatedData),
+    );
+    if (!mounted) return;
+    // Whatever was typed survives a trip back here (the receiver screen keeps
+    // it on the BookingData it was given).
+    _bookingData = _bookingData.copyWith(
+      receiverName: updatedData.receiverName,
+      receiverPhone: updatedData.receiverPhone,
+    );
+    if (result is ReceiverDetailsResult && result.changeDrop) {
+      await _editLocations();
+    }
   }
 
   Future<void> _editLocations() async {

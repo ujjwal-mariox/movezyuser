@@ -44,6 +44,9 @@ class ApiUrls {
   static String coinsBankTransferUrl = "$baseUrlApi/coins/bank-transfer";
 
   static String supportTicketsUrl = "$baseUrlApi/support/tickets";
+
+  /// Customer SOS: live location to the safety team's SOS dashboard.
+  static String sosTriggerUrl = "$baseUrlApi/sos/trigger";
   // Read a ticket thread and reply to it. The app could raise tickets but had no
   // way to read the answer, so every complaint was a one-way dead end.
   static String supportTicketDetailUrl(String ticketId) =>

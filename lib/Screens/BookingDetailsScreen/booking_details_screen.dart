@@ -139,7 +139,13 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     String? vehicleIcon;
     if (vt is Map) {
       vehicleName = vt['name'] ?? '---';
-      vehicleIcon = vt['icon'];
+      // Artwork is `image`; `icon` is empty on every catalogue type, so this
+      // fell through to the bundled bike picture — a 3-wheeler booking showed
+      // a two-wheeler.
+      vehicleIcon = [vt['image'], vt['icon']]
+          .map((v) => (v ?? '').toString().trim())
+          .firstWhere((v) => v.isNotEmpty, orElse: () => '');
+      if (vehicleIcon.isEmpty) vehicleIcon = null;
     }
 
     // Driver info
@@ -208,7 +214,8 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
                         errorBuilder: (_, _, _) => const Icon(Icons.local_shipping, size: 40),
                       )
                     else
-                      Image.asset('assets/bike_image.png', width: 50),
+                      // Neutral fallback, never a specific vehicle.
+                      const Icon(Icons.local_shipping, size: 40),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -384,7 +391,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
 
           const SizedBox(height: 20),
 
-          _fareSummaryCard(finalFare, baseFare, discount),
+          _fareSummaryCard(b, finalFare, baseFare, discount),
 
           const SizedBox(height: 20),
 
@@ -397,8 +404,64 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     );
   }
 
-  Widget _fareSummaryCard(double finalFare, double baseFare, double discount) {
-    final netFare = finalFare + discount;
+  /// The receipt, itemised as the trip was priced — Base + KM, with the km and
+  /// rate on the distance line — so it can be checked line by line. Anything
+  /// the booking holds that isn't itemised below lands in "Other charges", so
+  /// the rows always reach the subtotal. Older bookings without the rate show
+  /// the plain labels.
+  Widget _fareSummaryCard(
+      Map b, double finalFare, double baseFare, double discount) {
+    double n(dynamic v) => v is num ? v.toDouble() : 0;
+    String plain(double v) =>
+        v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+    String money(double v) => '₹${v.toStringAsFixed(2)}';
+    final distanceKm = n(b['distanceKm']);
+    final perKmRate = n(b['perKmRate']);
+    final includedKm = n(b['includedKm']);
+    final distanceCharge = n(b['distanceCharge']);
+    final timeCharge = n(b['timeCharge']);
+    final surge = n(b['surgeFare']);
+    final surgeMultiplier = n(b['surgeMultiplier']);
+    final stops = n(b['stopCharges']);
+    final addons = n(b['addonTotal']);
+    final minimumAdj = n(b['minimumFareAdjustment']);
+    final subtotal = n(b['subtotal']);
+    final gst = n(b['gstAmount']);
+    final gstPercentage = n(b['gstPercentage']);
+    final priced = perKmRate > 0 && distanceKm > 0;
+    final other = subtotal -
+        (baseFare + distanceCharge + timeCharge + surge + stops + addons + minimumAdj);
+    final itemised = subtotal > 0;
+
+    final lines = <List<String>>[
+      if (itemised) ...[
+        [
+          priced && includedKm > 0
+              ? 'Base fare (incl. first ${plain(includedKm)} km)'
+              : 'Base fare',
+          money(baseFare)
+        ],
+        if (distanceCharge > 0)
+          [
+            priced
+                ? 'Distance ${(distanceKm - includedKm).clamp(0, double.infinity).toStringAsFixed(2)} km × ₹${plain(perKmRate)}/km'
+                : 'Distance',
+            money(distanceCharge)
+          ],
+        if (timeCharge > 0) ['Time', money(timeCharge)],
+        if (surge > 0)
+          [surgeMultiplier > 1 ? 'Surge (×${plain(surgeMultiplier)})' : 'Surge', money(surge)],
+        if (stops > 0) ['Extra stops', money(stops)],
+        if (addons > 0) ['Add-on services', money(addons)],
+        if (minimumAdj > 0) ['Minimum fare adjustment', money(minimumAdj)],
+        if (other >= 0.05) ['Other charges', money(other)],
+        ['Subtotal', money(subtotal)],
+        if (gst > 0)
+          [gstPercentage > 0 ? 'GST (${plain(gstPercentage)}%)' : 'GST', money(gst)],
+      ],
+      if (discount > 0) ['Offer / Coupon', '-${money(discount)}'],
+    ];
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: const BoxDecoration(color: Colors.white),
@@ -413,19 +476,24 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
             decoration: _boxDecoration(),
             child: Column(
               children: [
-                _fareRow('Trip Fare (incl. Toll)', '₹${netFare.toStringAsFixed(2)}'),
-                const SizedBox(height: 8),
-                Image.asset("assets/dotted_line.png", height: 1),
-                const SizedBox(height: 8),
-                _fareRow('Net Fare', '₹${finalFare.toStringAsFixed(0)}'),
-                const SizedBox(height: 8),
-                Image.asset("assets/dotted_line.png", height: 1),
-                const SizedBox(height: 8),
-                _fareRow('Offer / Coupon', discount > 0 ? '-₹${discount.toStringAsFixed(0)}' : '₹0'),
-                const SizedBox(height: 8),
-                Image.asset("assets/dotted_line.png", height: 1),
-                const SizedBox(height: 8),
-                _fareRow('Amount Payable (rounded)', '₹${finalFare.toStringAsFixed(2)}', bold: true),
+                if (itemised && distanceKm > 0) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Trip distance ${distanceKm.toStringAsFixed(2)} km (by road)',
+                      style: GoogleFonts.poppins(
+                          fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                for (final l in lines) ...[
+                  _fareRow(l[0], l[1]),
+                  const SizedBox(height: 8),
+                  Image.asset("assets/dotted_line.png", height: 1),
+                  const SizedBox(height: 8),
+                ],
+                _fareRow('Amount Payable', '₹${finalFare.toStringAsFixed(2)}', bold: true),
               ],
             ),
           ),

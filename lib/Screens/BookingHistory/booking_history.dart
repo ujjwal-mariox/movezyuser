@@ -76,7 +76,12 @@ class BookingItem {
     final vt = json['vehicleTypeId'];
     if (vt is Map) {
       vehicleName = vt['name'];
-      vehicleIcon = vt['icon'];
+      // The vehicle's artwork is `image`; `icon` is empty on every catalogue
+      // type, so reading it alone drew the same truck glyph on every order.
+      vehicleIcon = [vt['image'], vt['icon']]
+          .map((v) => (v ?? '').toString().trim())
+          .firstWhere((v) => v.isNotEmpty, orElse: () => '');
+      if (vehicleIcon.isEmpty) vehicleIcon = null;
     }
 
     // Extract driver info
@@ -113,8 +118,10 @@ class BookingItem {
       paymentMethod: json['paymentMethod'] ?? 'CASH',
       paymentStatus: json['paymentStatus'],
       rating: (json['rating'] as num?)?.toInt() ?? 0,
+      // The server sends UTC; without toLocal() history and the home screen's
+      // recent orders printed 05:36 for an 11:06 booking.
       createdAt: json['createdAt'] != null
-          ? DateTime.tryParse(json['createdAt']) ?? DateTime.now()
+          ? DateTime.tryParse(json['createdAt'])?.toLocal() ?? DateTime.now()
           : DateTime.now(),
       serviceType: json['serviceType'] ?? 'WITHIN_CITY',
     );

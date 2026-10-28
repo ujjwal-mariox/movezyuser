@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:movezy_user_app/CommonWidgets/sos_sheet.dart';
 import 'package:movezy_user_app/Services/masked_call_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -87,6 +88,17 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
   // Fare breakdown components (from booking priceDetails)
   double _baseFare = 0;
   double _distanceFare = 0;
+  // What the distance line was priced from (Base + KM): the base covers the
+  // first _includedKm, the rest is billed at _perKmRate. 0 on older bookings.
+  double _distanceKm = 0;
+  double _perKmRate = 0;
+  double _includedKm = 0;
+  double _timeCharge = 0;
+  double _surgeFare = 0;
+  double _surgeMultiplier = 1;
+  double _stopCharges = 0;
+  double _minimumFareAdjustment = 0;
+  double _gstPercentage = 0;
   double _addonsTotal = 0;
   double _taxAmount = 0;
   double _discountAmount = 0;
@@ -441,6 +453,15 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
         _baseFare = num2(price['baseFare'] ?? price['base']);
         _distanceFare = num2(price['distanceCharge'] ??
             price['distanceFare'] ?? price['distance']);
+        _distanceKm = num2(booking['distanceKm']);
+        _perKmRate = num2(booking['perKmRate']);
+        _includedKm = num2(booking['includedKm']);
+        _timeCharge = num2(booking['timeCharge']);
+        _surgeFare = num2(booking['surgeFare']);
+        _surgeMultiplier = num2(booking['surgeMultiplier']);
+        _stopCharges = num2(booking['stopCharges']);
+        _minimumFareAdjustment = num2(booking['minimumFareAdjustment']);
+        _gstPercentage = num2(booking['gstPercentage']);
         _addonsTotal = num2(price['addonTotal'] ??
             price['addonCharges'] ?? price['addonsTotal']);
         _taxAmount = num2(
@@ -903,12 +924,19 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
   /// item for a PAID booking would name money that was never added.
   bool get _waitingBilled => _waitingCharge > 0 && _paymentStatus != 'PAID';
 
+  String _plain(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+
   /// Show a fare breakdown bottom sheet built from the booking's price details.
   void _showFareBreakup() {
     // Any components we couldn't parse are folded into "Other charges" so the
     // rows always add up to the amount actually payable.
     final knownSum = _baseFare +
         _distanceFare +
+        _timeCharge +
+        _surgeFare +
+        _stopCharges +
+        _minimumFareAdjustment +
         _addonsTotal +
         (_waitingBilled ? _waitingCharge : 0) +
         _taxAmount -
@@ -959,10 +987,12 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
+      // The itemised Base + KM rows can outgrow the default half-height cap.
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => Padding(
+      builder: (_) => SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -980,30 +1010,60 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
             const Text("Fare Breakup",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
-            if (_baseFare > 0) row("Base Fare", "₹${_baseFare.toStringAsFixed(0)}"),
+            if (_distanceKm > 0)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                    "Trip distance ${_distanceKm.toStringAsFixed(2)} km (by road)",
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+              ),
+            // Base + KM spelled out (paise kept, so the rows add up exactly).
+            if (_baseFare > 0)
+              row(
+                  _perKmRate > 0 && _includedKm > 0
+                      ? "Base fare (incl. first ${_plain(_includedKm)} km)"
+                      : "Base fare",
+                  "₹${_baseFare.toStringAsFixed(2)}"),
             if (_distanceFare > 0)
-              row("Distance Charge", "₹${_distanceFare.toStringAsFixed(0)}"),
+              row(
+                  _perKmRate > 0 && _distanceKm > 0
+                      ? "Distance ${(_distanceKm - _includedKm).clamp(0, double.infinity).toStringAsFixed(2)} km × ₹${_plain(_perKmRate)}/km"
+                      : "Distance",
+                  "₹${_distanceFare.toStringAsFixed(2)}"),
+            if (_timeCharge > 0)
+              row("Time", "₹${_timeCharge.toStringAsFixed(2)}"),
+            if (_surgeFare > 0)
+              row(_surgeMultiplier > 1 ? "Surge (×${_plain(_surgeMultiplier)})" : "Surge",
+                  "₹${_surgeFare.toStringAsFixed(2)}"),
+            if (_stopCharges > 0)
+              row("Extra stops", "₹${_stopCharges.toStringAsFixed(2)}"),
             if (_addonsTotal > 0)
-              row("Add-on Services", "₹${_addonsTotal.toStringAsFixed(0)}"),
+              row("Add-on services", "₹${_addonsTotal.toStringAsFixed(2)}"),
+            if (_minimumFareAdjustment > 0)
+              row("Minimum fare adjustment",
+                  "₹${_minimumFareAdjustment.toStringAsFixed(2)}"),
             // Added to the fare at pickup, so it needs naming here — it used to
             // disappear into "Other Charges" with nothing to explain the jump.
             if (_waitingBilled)
               row(
-                "Waiting Charge",
-                "₹${_waitingCharge.toStringAsFixed(0)}",
+                "Waiting",
+                "₹${_waitingCharge.toStringAsFixed(2)}",
                 note: _waitingMinutes > 0
                     ? "Driver waited $_waitingMinutes min at pickup. Only the "
                         "time beyond the free waiting allowance is charged."
                     : null,
               ),
-            if (other.abs() >= 1)
-              row("Other Charges", "₹${other.toStringAsFixed(0)}"),
-            if (_taxAmount > 0) row("GST & Taxes", "₹${_taxAmount.toStringAsFixed(0)}"),
+            // Paise-level drift from per-row rounding is not a charge.
+            if (other.abs() >= 0.05)
+              row("Other charges", "₹${other.toStringAsFixed(2)}"),
+            if (_taxAmount > 0)
+              row(_gstPercentage > 0 ? "GST (${_plain(_gstPercentage)}%)" : "GST",
+                  "₹${_taxAmount.toStringAsFixed(2)}"),
             if (_discountAmount > 0)
-              row("Discount", "-₹${_discountAmount.toStringAsFixed(0)}",
+              row("Discount", "-₹${_discountAmount.toStringAsFixed(2)}",
                   color: Colors.green),
             const Divider(height: 24),
-            row("Total Fare", "₹${_finalFare.toStringAsFixed(2)}", bold: true),
+            row("Amount Payable", "₹${_finalFare.toStringAsFixed(2)}", bold: true),
             const SizedBox(height: 8),
             Text("Paid via $_paymentLabel",
                 style: const TextStyle(fontSize: 12, color: Colors.black54)),
@@ -1108,6 +1168,13 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
                                   height: 1.25),
                             ),
                             const Spacer(),
+                            // SOS while a driver is on the booking. There was
+                            // none anywhere in the customer app.
+                            if (const ['ASSIGNED', 'DRIVER_ARRIVED', 'PICKED', 'IN_PROGRESS']
+                                .contains(_status)) ...[
+                              SosPill(bookingId: widget.bookingId),
+                              const SizedBox(width: 14),
+                            ],
                             InkWell(
                               onTap: () => Share.share(
                                   'Track my Movezy delivery: #$_bookingNumber'),
