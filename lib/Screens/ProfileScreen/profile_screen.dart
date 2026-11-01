@@ -22,6 +22,7 @@ import 'package:movezy_user_app/Services/referral_service.dart';
 import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 import 'package:movezy_user_app/Utils/PermissionsManager/permissions_manager.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
+import 'package:movezy_user_app/Services/push_notification_service.dart';
 import 'package:share_plus/share_plus.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -1022,6 +1023,8 @@ Widget _header(BuildContext context) {
   /// Clear the session and return to login. Extracted from the logout row so
   /// the profile-load error state can offer the same escape hatch.
   Future<void> _logout(BuildContext context) async {
+    // Stop this phone receiving the account's pushes after sign-out.
+    await PushNotificationService.instance.unregisterDevice();
     await Prefs.setBool('check_log_in', false);
     await Prefs.setString('mobile_number', "");
     await Prefs.setString('token', "");

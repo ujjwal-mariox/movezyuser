@@ -137,7 +137,7 @@ class _LiveTrackingMapScreenState extends State<LiveTrackingMapScreen> {
             children: [
               TileLayer(
                 urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.movezy_user_app',
+                userAgentPackageName: 'co.movezy.app',
               ),
               if (route.length >= 2)
                 PolylineLayer(

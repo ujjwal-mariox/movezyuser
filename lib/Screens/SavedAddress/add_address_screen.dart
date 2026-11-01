@@ -824,7 +824,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
                 TileLayer(
                   urlTemplate:
                       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.movezy_user_app',
+                  userAgentPackageName: 'co.movezy.app',
                 ),
                 if (hasPoint)
                   MarkerLayer(

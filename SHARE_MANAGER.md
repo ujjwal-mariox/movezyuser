@@ -98,7 +98,7 @@ All sharing methods share:
 
 - **App Name:** Movezy
 - **Message:** "Check out Movezy - Fast, Reliable & Affordable Delivery! Download now: [Play Store Link]"
-- **Download URL:** https://play.google.com/store/apps/details?id=com.movezy.app
+- **Download URL:** https://play.google.com/store/apps/details?id=co.movezy.app
 
 ## Platform Support
 
@@ -119,7 +119,7 @@ To customize the share message or app details, edit the constants in ShareManage
 
 ```dart
 static const String _appName = 'Movezy';
-static const String _appDownloadUrl = 'https://play.google.com/store/apps/details?id=com.movezy.app';
+static const String _appDownloadUrl = 'https://play.google.com/store/apps/details?id=co.movezy.app';
 static const String _appDescription = '...';
 static const String _shareMessage = '...';
 ```

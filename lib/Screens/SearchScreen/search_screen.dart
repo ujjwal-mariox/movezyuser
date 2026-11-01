@@ -572,7 +572,7 @@ class _SearchScreenState extends State<SearchScreen> {
               TileLayer(
                 tileProvider: widget.mapTileProvider,
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.movezy_user_app',
+                userAgentPackageName: 'co.movezy.app',
               ),
               PolylineLayer(
                 polylines: [

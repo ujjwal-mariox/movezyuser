@@ -323,7 +323,7 @@ class _RideFindingScreenState extends State<RideFindingScreen>
                               urlTemplate:
                                   'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                               userAgentPackageName:
-                                  'com.example.movezy_user_app',
+                                  'co.movezy.app',
                             ),
                             // Pulsing search radius around the real pickup.
                             AnimatedBuilder(

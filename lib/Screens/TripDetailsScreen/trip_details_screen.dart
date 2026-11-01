@@ -243,7 +243,7 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
                   TileLayer(
                     urlTemplate:
                         'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.example.movezy_user_app',
+                    userAgentPackageName: 'co.movezy.app',
                   ),
                   if (_pickupLatLng != null && _dropLatLng != null)
                     PolylineLayer(

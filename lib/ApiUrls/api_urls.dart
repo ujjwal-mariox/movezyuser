@@ -25,6 +25,9 @@ class ApiUrls {
 
   static String userAddressUrl = "$baseUrlApi/user/address";
 
+  /// Registers this phone for push notifications (Firebase token).
+  static String fcmTokenUrl = "$baseUrlApi/notifications/fcm-token";
+
   static String homeUrl = "$baseUrlApi/home";
 
   static String gstUrl = "$baseUrlApi/user/gst";

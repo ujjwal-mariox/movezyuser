@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 class ShareManager {
   // App details
   static const String _appName = 'Movezy';
-  static const String _appDownloadUrl = 'https://play.google.com/store/apps/details?id=com.movezy.app';
+  static const String _appDownloadUrl = 'https://play.google.com/store/apps/details?id=co.movezy.app';
   static const String _appDescription =
       'Download Movezy - Your trusted delivery partner for fast, reliable, and affordable delivery services!';
   static const String _shareMessage =

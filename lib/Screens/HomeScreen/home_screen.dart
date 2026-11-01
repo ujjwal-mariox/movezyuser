@@ -22,6 +22,7 @@ import 'package:movezy_user_app/Screens/HomeScreen/Model/home_page_model.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Service/home_api_service.dart';
 import 'package:movezy_user_app/Services/wallet_service.dart';
+import 'package:movezy_user_app/Services/push_notification_service.dart';
 import 'package:movezy_user_app/CommonWidgets/button_widget.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -78,6 +79,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Ask for notification permission here, not at login, so it never stacks
+    // on the location prompt; also re-sends the token if it changed.
+    PushNotificationService.instance.registerDevice();
 
     // Delivery motion animation (subtle slide loop)
     _deliveryAnimController = AnimationController(
@@ -1183,7 +1187,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
       children: [
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.movezy_user_app',
+          userAgentPackageName: 'co.movezy.app',
           maxZoom: 19,
         ),
         MarkerLayer(

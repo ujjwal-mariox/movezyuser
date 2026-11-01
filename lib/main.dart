@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:movezy_user_app/Routes/app_routes.dart';
+import 'package:movezy_user_app/Services/push_notification_service.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
 
 /// Removes the stretchy / glow overscroll effect on every screen globally.
@@ -20,6 +21,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Prefs.load();
   Prefs.loadData();
+  // Push notifications; registering the phone happens on the home screen.
+  await PushNotificationService.instance.init();
   runApp(const MyApp());
 }
 
