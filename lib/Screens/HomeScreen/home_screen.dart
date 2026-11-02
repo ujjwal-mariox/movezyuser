@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:movezy_user_app/CommonWidgets/movezy_map.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hexcolor/hexcolor.dart';
 import 'package:http/http.dart' as http;
@@ -34,7 +34,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, TickerProviderStateMixin {
   final HomeApiService _homeApiService = HomeApiService();
-  MapController? _mapController;
+  MovezyMapController? _mapController;
   List<HomeVehicleType> _vehicleTypes = [];
   List<PromoBanner> _promoBanners = [];
   bool _isLoading = true;
@@ -104,7 +104,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
     _promoTimer?.cancel();
     _headerVehicleTimer?.cancel();
     _deliveryAnimController.dispose();
-    _mapController?.dispose();
     super.dispose();
   }
 
@@ -1173,49 +1172,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
 
   /// The actual map widget — only built once _mapReady is true
   Widget _buildMapWidget() {
-    _mapController ??= MapController();
+    _mapController ??= MovezyMapController();
     return IgnorePointer(
-      child: FlutterMap(
-      mapController: _mapController!,
-      options: MapOptions(
-        initialCenter: _userLocation,
-        initialZoom: 14.5,
-        interactionOptions: const InteractionOptions(
-          flags: InteractiveFlag.none,
-        ),
-      ),
-      children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'co.movezy.app',
-          maxZoom: 19,
-        ),
-        MarkerLayer(
-          markers: [
-            // User location
-            Marker(
-              point: _userLocation,
-              width: 28,
-              height: 28,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: HexColor("#FF6200"),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 3),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 6)],
-                ),
-                child: const Icon(Icons.person, size: 14, color: Colors.white),
-              ),
+      child: MovezyMap(
+      controller: _mapController!,
+      initialCenter: _userLocation,
+      initialZoom: 14.5,
+      interactive: false,
+      markers: [
+        // User location
+        MapMarker(
+          id: 'me',
+          key: 'home-me',
+          point: _userLocation,
+          width: 28,
+          height: 28,
+          child: Container(
+            decoration: BoxDecoration(
+              color: HexColor("#FF6200"),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 6)],
             ),
-            // Nearby vehicles
-            ..._nearbyVehicles.map((v) => Marker(
-                  point: v.position,
-                  width: 40,
-                  height: 40,
-                  child: _VehicleMarker(vehicle: v),
-                )),
-          ],
+            child: const Icon(Icons.person, size: 14, color: Colors.white),
+          ),
         ),
+        // Nearby vehicles (one image per vehicle icon)
+        for (var i = 0; i < _nearbyVehicles.length; i++)
+          MapMarker(
+            id: 'vehicle-$i',
+            key: 'home-vehicle-${_nearbyVehicles[i].icon.codePoint}',
+            point: _nearbyVehicles[i].position,
+            width: 40,
+            height: 40,
+            child: _VehicleMarker(vehicle: _nearbyVehicles[i]),
+          ),
       ],
       ),
     );

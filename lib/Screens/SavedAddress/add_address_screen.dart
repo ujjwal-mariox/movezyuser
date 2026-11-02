@@ -542,7 +542,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:movezy_user_app/CommonWidgets/movezy_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:movezy_user_app/Screens/MapPickerScreen/map_picker_screen.dart';
@@ -812,31 +812,21 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
         children: [
           // Preview only — tapping opens the full picker.
           AbsorbPointer(
-            child: FlutterMap(
+            child: MovezyMap(
               key: ValueKey('$_latitude,$_longitude'),
-              options: MapOptions(
-                initialCenter: point,
-                initialZoom: hasPoint ? 16 : 11,
-                interactionOptions:
-                    const InteractionOptions(flags: InteractiveFlag.none),
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate:
-                      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'co.movezy.app',
-                ),
+              initialCenter: point,
+              initialZoom: hasPoint ? 16 : 11,
+              interactive: false,
+              markers: [
                 if (hasPoint)
-                  MarkerLayer(
-                    markers: [
-                      Marker(
-                        point: point,
-                        width: 44,
-                        height: 44,
-                        child: const Icon(Icons.location_pin,
-                            size: 40, color: Colors.red),
-                      ),
-                    ],
+                  MapMarker(
+                    id: 'address',
+                    key: 'address-pin',
+                    point: point,
+                    width: 44,
+                    height: 44,
+                    child: const Icon(Icons.location_pin,
+                        size: 40, color: Colors.red),
                   ),
               ],
             ),

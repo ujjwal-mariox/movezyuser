@@ -18,7 +18,7 @@ import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:movezy_user_app/CommonWidgets/movezy_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:movezy_user_app/Services/routing_service.dart';
 import 'package:http/http.dart' as http;
@@ -30,7 +30,9 @@ class SearchScreen extends StatefulWidget {
   final Future<VehicleOptionsResult> Function(BookingData)?
   checkVehicleAvailability;
   final ValueChanged<BookingData>? onTripValidated;
-  final TileProvider? mapTileProvider;
+  /// False in widget tests: Google's map is a platform view and can't
+  /// render there.
+  final bool showPreviewMap;
   final Future<List<LatLng>> Function(List<LatLng>)? loadPreviewRoute;
 
   const SearchScreen({
@@ -38,7 +40,7 @@ class SearchScreen extends StatefulWidget {
     this.bookingData,
     this.checkVehicleAvailability,
     this.onTripValidated,
-    this.mapTileProvider,
+    this.showPreviewMap = true,
     this.loadPreviewRoute,
   });
 
@@ -88,7 +90,7 @@ class _SearchScreenState extends State<SearchScreen> {
   /// shows the trip drawn on a map as stops are added, so the customer can see
   /// the detour a stop causes before committing to it.
   List<LatLng> _previewRoute = const [];
-  final MapController _previewMapController = MapController();
+  final MovezyMapController _previewMapController = MovezyMapController();
 
   @override
   void initState() {
@@ -256,17 +258,8 @@ class _SearchScreenState extends State<SearchScreen> {
   void _fitPreviewToRoute() {
     final pts = _previewRoute.isNotEmpty ? _previewRoute : _routeWaypoints;
     if (pts.length < 2) return;
-    try {
-      _previewMapController.fitCamera(
-        CameraFit.bounds(
-          bounds: LatLngBounds.fromPoints(pts),
-          padding: const EdgeInsets.all(36),
-        ),
-      );
-    } catch (_) {
-      // The controller is not attached until the map is laid out; the next
-      // refresh after layout will frame it.
-    }
+    // A no-op until the map exists; onMapReady frames it then.
+    _previewMapController.fitPoints(pts, padding: 36);
   }
 
   /// Straight-line km from the user to a place, or null when we cannot say.
@@ -556,68 +549,62 @@ class _SearchScreenState extends State<SearchScreen> {
         borderRadius: BorderRadius.circular(14),
         child: SizedBox(
           height: 260,
-          child: FlutterMap(
-            mapController: _previewMapController,
-            options: MapOptions(
-              initialCenter: pickup,
-              initialZoom: 11,
-              // A preview, not a map screen: taps belong to the fields above,
-              // and a scrollable map inside a scrollable page fights the page.
-              interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.none,
+          child: !widget.showPreviewMap
+              ? const ColoredBox(color: Color(0xFFE8EEF2))
+              : MovezyMap(
+            controller: _previewMapController,
+            initialCenter: pickup,
+            initialZoom: 11,
+            // A preview, not a map screen: taps belong to the fields above,
+            // and a scrollable map inside a scrollable page fights the page.
+            interactive: false,
+            onMapReady: _fitPreviewToRoute,
+            lines: [
+              MapLine(
+                id: 'route',
+                points: line,
+                width: 4,
+                color: HexColor('#2D5BE3'),
               ),
-              onMapReady: _fitPreviewToRoute,
-            ),
-            children: [
-              TileLayer(
-                tileProvider: widget.mapTileProvider,
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'co.movezy.app',
+            ],
+            markers: [
+              // Pickup — the green pin the design puts at the origin.
+              MapMarker(
+                id: 'pickup',
+                key: 'search-pickup',
+                point: pickup,
+                width: 34,
+                height: 42,
+                alignment: Alignment.topCenter,
+                child: Icon(
+                  Icons.location_on,
+                  size: 32,
+                  color: HexColor('#22A447'),
+                ),
               ),
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: line,
-                    strokeWidth: 4,
-                    color: HexColor('#2D5BE3'),
-                  ),
-                ],
-              ),
-              MarkerLayer(
-                markers: [
-                  // Pickup — the green pin the design puts at the origin.
-                  Marker(
-                    point: pickup,
-                    width: 34,
-                    height: 42,
-                    alignment: Alignment.topCenter,
-                    child: Icon(
-                      Icons.location_on,
-                      size: 32,
-                      color: HexColor('#22A447'),
-                    ),
-                  ),
-                  // Each intermediate stop carries its number, matching the
-                  // numbered badge on its field above.
-                  for (var i = 1; i < pts.length - 1; i++)
-                    Marker(
-                      point: pts[i],
-                      width: 30,
-                      height: 38,
-                      alignment: Alignment.topCenter,
-                      child: _numberedPin('$i'),
-                    ),
-                  // Final drop.
-                  if (pts.length > 1)
-                    Marker(
-                      point: last,
-                      width: 30,
-                      height: 38,
-                      alignment: Alignment.topCenter,
-                      child: _numberedPin('${pts.length - 1}'),
-                    ),
-                ],
-              ),
+              // Each intermediate stop carries its number, matching the
+              // numbered badge on its field above.
+              for (var i = 1; i < pts.length - 1; i++)
+                MapMarker(
+                  id: 'stop-$i',
+                  key: 'search-pin-$i',
+                  point: pts[i],
+                  width: 30,
+                  height: 38,
+                  alignment: Alignment.topCenter,
+                  child: _numberedPin('$i'),
+                ),
+              // Final drop.
+              if (pts.length > 1)
+                MapMarker(
+                  id: 'drop',
+                  key: 'search-pin-${pts.length - 1}',
+                  point: last,
+                  width: 30,
+                  height: 38,
+                  alignment: Alignment.topCenter,
+                  child: _numberedPin('${pts.length - 1}'),
+                ),
             ],
           ),
         ),

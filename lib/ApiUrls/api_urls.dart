@@ -28,6 +28,12 @@ class ApiUrls {
   /// Registers this phone for push notifications (Firebase token).
   static String fcmTokenUrl = "$baseUrlApi/notifications/fcm-token";
 
+  /// Address search and "what's at this pin" (Google, through the server).
+  static String mapsAutocompleteUrl = "$baseUrlApi/maps/autocomplete";
+  static String mapsPlaceUrl(String placeId) =>
+      "$baseUrlApi/maps/place/${Uri.encodeComponent(placeId)}";
+  static String mapsReverseUrl = "$baseUrlApi/maps/reverse";
+
   static String homeUrl = "$baseUrlApi/home";
 
   static String gstUrl = "$baseUrlApi/user/gst";

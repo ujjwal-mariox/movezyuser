@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:movezy_user_app/CommonWidgets/movezy_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
@@ -8,6 +8,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:hexcolor/hexcolor.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:math';
+import 'package:movezy_user_app/ApiUrls/api_urls.dart';
+import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
+import 'package:movezy_user_app/Utils/CustomToast/custome_toast.dart';
 
 /// Result returned when user confirms a location on the map.
 class MapPickerResult {
@@ -47,7 +51,7 @@ class MapPickerScreen extends StatefulWidget {
 }
 
 class _MapPickerScreenState extends State<MapPickerScreen> {
-  late final MapController _mapController;
+  final MovezyMapController _mapController = MovezyMapController();
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
 
@@ -60,11 +64,13 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   List<_SearchResult> _searchResults = [];
   Timer? _debounce;
   bool _isLocating = false;
+  // One Google search session from the first keystroke to the pick, so the
+  // whole search is billed as one session; reset after a pick.
+  String? _searchSession;
 
   @override
   void initState() {
     super.initState();
-    _mapController = MapController();
     if (widget.initialLocation != null) {
       _selectedLocation = widget.initialLocation!;
     }
@@ -82,7 +88,6 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
     _debounce?.cancel();
     _searchController.dispose();
     _searchFocus.dispose();
-    _mapController.dispose();
     super.dispose();
   }
 
@@ -119,7 +124,16 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
     }
   }
 
-  /// Search places using Nominatim (OSM free geocoding API)
+  static String _newSessionToken() {
+    const chars =
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    final rnd = Random.secure();
+    return List.generate(32, (_) => chars[rnd.nextInt(chars.length)]).join();
+  }
+
+  /// Address suggestions from the server (Google Places, biased to where the
+  /// map is), replacing direct calls to OSM's Nominatim, whose policy forbids
+  /// search-as-you-type in apps.
   Future<void> _searchPlaces(String query) async {
     if (query.trim().length < 3) {
       setState(() {
@@ -130,29 +144,32 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
     }
 
     setState(() => _isSearching = true);
+    _searchSession ??= _newSessionToken();
 
     try {
-      final url = Uri.parse(
-        'https://nominatim.openstreetmap.org/search?'
-        'q=${Uri.encodeComponent(query)}'
-        '&format=json&addressdetails=1&limit=5'
-        '&countrycodes=in',
+      final url = Uri.parse(ApiUrls.mapsAutocompleteUrl).replace(
+        queryParameters: {
+          'q': query.trim(),
+          'session': _searchSession!,
+          'lat': _selectedLocation.latitude.toString(),
+          'lng': _selectedLocation.longitude.toString(),
+        },
       );
       final res = await http.get(url, headers: {
-        'User-Agent': 'MovezyApp/1.0',
-        'Accept-Language': 'en',
-      });
+        'Authorization': 'Bearer ${Prefs.getString('token')}',
+      }).timeout(const Duration(seconds: 10));
 
       if (res.statusCode == 200 && mounted) {
-        final List data = json.decode(res.body);
+        final List data =
+            (json.decode(res.body)['data']?['suggestions'] as List?) ?? [];
         setState(() {
           _searchResults = data.map((item) {
             return _SearchResult(
-              displayName: item['display_name'] ?? '',
-              lat: double.tryParse(item['lat']?.toString() ?? '') ?? 0,
-              lng: double.tryParse(item['lon']?.toString() ?? '') ?? 0,
+              placeId: item['placeId']?.toString() ?? '',
+              title: item['title']?.toString() ?? '',
+              subtitle: item['subtitle']?.toString() ?? '',
             );
-          }).toList();
+          }).where((r) => r.placeId.isNotEmpty).toList();
           _showSearchResults = _searchResults.isNotEmpty;
         });
       }
@@ -182,11 +199,11 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
       final newPos = LatLng(pos.latitude, pos.longitude);
       if (mounted) {
-        if (animate) {
-          _mapController.move(newPos, 16.0);
-        } else {
-          _selectedLocation = newPos;
-        }
+        // Moves the map now, or as soon as it exists: the first GPS fix can
+        // arrive before the map is created, which used to leave the map on
+        // the default view while the pin's address was the user's location.
+        _selectedLocation = newPos;
+        _mapController.move(newPos, 16.0, animate: animate);
         _reverseGeocode(newPos);
       }
     } catch (e) {
@@ -203,16 +220,50 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
     });
   }
 
-  void _selectSearchResult(_SearchResult result) {
-    final pos = LatLng(result.lat, result.lng);
-    _mapController.move(pos, 16.0);
-    setState(() {
-      _selectedLocation = pos;
-      _selectedAddress = result.displayName;
-      _showSearchResults = false;
-      _searchController.text = '';
-    });
+  /// A suggestion carries no coordinates; the server looks them up (Google
+  /// Place Details), which also closes the search session.
+  Future<void> _selectSearchResult(_SearchResult result) async {
     _searchFocus.unfocus();
+    setState(() {
+      _showSearchResults = false;
+      _isSearching = true;
+    });
+    final session = _searchSession;
+    _searchSession = null;
+    try {
+      final url = Uri.parse(ApiUrls.mapsPlaceUrl(result.placeId)).replace(
+        queryParameters: {if (session != null) 'session': session},
+      );
+      final res = await http.get(url, headers: {
+        'Authorization': 'Bearer ${Prefs.getString('token')}',
+      }).timeout(const Duration(seconds: 10));
+      final place = res.statusCode == 200
+          ? (json.decode(res.body)['data']?['place'] as Map?)
+          : null;
+      final lat = (place?['lat'] as num?)?.toDouble();
+      final lng = (place?['lng'] as num?)?.toDouble();
+      if (!mounted) return;
+      if (lat == null || lng == null) {
+        showCustomToast(context, "Couldn't open that place. Try another result.");
+        return;
+      }
+      final pos = LatLng(lat, lng);
+      _mapController.move(pos, 16.0);
+      final address = (place?['address'] ?? '').toString();
+      setState(() {
+        _selectedLocation = pos;
+        _selectedAddress =
+            address.isNotEmpty ? address : result.displayName;
+        _searchController.text = '';
+      });
+    } catch (e) {
+      debugPrint('Place lookup error: $e');
+      if (mounted) {
+        showCustomToast(context, "Couldn't open that place. Try another result.");
+      }
+    } finally {
+      if (mounted) setState(() => _isSearching = false);
+    }
   }
 
   /// Placeholder/transient labels that must never escape as a real address.
@@ -261,34 +312,24 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
       body: Stack(
         children: [
           // ─── MAP ─────────────────────────────────────
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _selectedLocation,
-              initialZoom: 15.0,
-              onPositionChanged: (pos, hasGesture) {
-                if (hasGesture && pos.center != null) {
-                  setState(() {
-                    _selectedLocation = pos.center!;
-                    _selectedAddress = 'Loading...';
-                    _isLoadingAddress = true;
-                  });
-                }
-              },
-              onMapEvent: (event) {
-                // Reverse geocode on map move end
-                if (event is MapEventMoveEnd) {
-                  _reverseGeocode(_selectedLocation);
-                }
-              },
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'co.movezy.app',
-                maxZoom: 19,
-              ),
-            ],
+          MovezyMap(
+            controller: _mapController,
+            initialCenter: _selectedLocation,
+            initialZoom: 15.0,
+            onCameraMove: (center, zoom, byUser) {
+              if (byUser) {
+                setState(() {
+                  _selectedLocation = center;
+                  _selectedAddress = 'Loading...';
+                  _isLoadingAddress = true;
+                });
+              }
+            },
+            // Reverse geocode when the user's drag ends (a programmatic move —
+            // a picked search result — already carries its address).
+            onCameraIdle: (center, zoom, byUser) {
+              if (byUser) _reverseGeocode(_selectedLocation);
+            },
           ),
 
           // ─── CENTER PIN (always in the middle of the map) ───
@@ -410,11 +451,22 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                           leading: Icon(Icons.location_on_outlined,
                               color: HexColor("#FF6200"), size: 20),
                           title: Text(
-                            r.displayName,
-                            maxLines: 2,
+                            r.title,
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.poppins(fontSize: 13),
+                            style: GoogleFonts.poppins(
+                                fontSize: 13, fontWeight: FontWeight.w500),
                           ),
+                          subtitle: r.subtitle.isEmpty
+                              ? null
+                              : Text(
+                                  r.subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.poppins(
+                                      fontSize: 11.5,
+                                      color: Colors.grey[600]),
+                                ),
                           onTap: () => _selectSearchResult(r),
                         );
                       },
@@ -560,13 +612,15 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 }
 
 class _SearchResult {
-  final String displayName;
-  final double lat;
-  final double lng;
+  final String placeId;
+  final String title;
+  final String subtitle;
 
   _SearchResult({
-    required this.displayName,
-    required this.lat,
-    required this.lng,
+    required this.placeId,
+    required this.title,
+    required this.subtitle,
   });
+
+  String get displayName => subtitle.isEmpty ? title : '$title, $subtitle';
 }

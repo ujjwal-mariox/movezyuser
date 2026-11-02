@@ -2,11 +2,12 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:movezy_user_app/CommonWidgets/movezy_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'package:movezy_user_app/ApiUrls/api_urls.dart';
 import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
@@ -210,29 +211,29 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
 
   /// Saves the drop to Saved Addresses under the chosen label. The address API
   /// needs city / state / PIN as separate fields, which the drop only has as
-  /// text, so they come from a reverse geocode of the pin (OSM Nominatim, the
-  /// same service the map search uses). If that can't produce them the booking
-  /// carries on and the customer is told to add it from Saved Addresses.
+  /// text, so they come from a reverse geocode of the pin (the server's maps
+  /// lookup, Google). If that can't produce them the booking carries on and
+  /// the customer is told to add it from Saved Addresses.
   Future<bool> _saveDropAddress(String name, String phone) async {
     final lat = widget.bookingData.dropLat!;
     final lng = widget.bookingData.dropLng!;
     final text = widget.bookingData.dropAddress ?? '';
     Map<String, dynamic> a = {};
-    // The public geocoder occasionally drops a request; one retry after a
-    // second (its rate limit) recovers that without a visible wait.
+    // One retry after a second recovers a dropped request without a visible
+    // wait.
     for (var attempt = 0; attempt < 2 && a.isEmpty; attempt++) {
       if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
       try {
         final res = await http.get(
-          Uri.parse('https://nominatim.openstreetmap.org/reverse'
-              '?format=jsonv2&addressdetails=1&lat=$lat&lon=$lng'),
-          headers: {'User-Agent': 'MovezyApp/1.0', 'Accept-Language': 'en'},
+          Uri.parse(ApiUrls.mapsReverseUrl).replace(queryParameters: {
+            'lat': lat.toString(),
+            'lng': lng.toString(),
+          }),
+          headers: {'Authorization': 'Bearer ${Prefs.getString('token')}'},
         ).timeout(const Duration(seconds: 10));
         if (res.statusCode == 200) {
-          final body = json.decode(res.body);
-          if (body is Map && body['address'] is Map) {
-            a = Map<String, dynamic>.from(body['address'] as Map);
-          }
+          final data = json.decode(res.body)['data'];
+          if (data is Map) a = Map<String, dynamic>.from(data);
         }
       } catch (_) {}
     }
@@ -460,21 +461,10 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
         Positioned.fill(
           child: lat == null || lng == null
               ? Container(color: Colors.grey.shade200)
-              : FlutterMap(
-                  options: MapOptions(
-                    initialCenter: LatLng(lat, lng),
-                    initialZoom: 16,
-                    interactionOptions:
-                        const InteractionOptions(flags: InteractiveFlag.none),
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate:
-                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'co.movezy.app',
-                      maxZoom: 19,
-                    ),
-                  ],
+              : MovezyMap(
+                  initialCenter: LatLng(lat, lng),
+                  initialZoom: 16,
+                  interactive: false,
                 ),
         ),
         if (lat != null && lng != null)

@@ -12,7 +12,7 @@ import 'package:movezy_user_app/Screens/RideCanceledSuccessScreen/ride_canceled_
 import 'package:movezy_user_app/Services/booking_service.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
 import 'package:hexcolor/hexcolor.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:movezy_user_app/CommonWidgets/movezy_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
@@ -309,42 +309,18 @@ class _RideFindingScreenState extends State<RideFindingScreen>
                 Positioned.fill(
                   child: _pickup == null
                       ? Container(color: const Color(0xFFE8EAED))
-                      : FlutterMap(
-                          options: MapOptions(
-                            initialCenter: _pickup!,
-                            initialZoom: 15,
-                            // Purely informational while we search.
-                            interactionOptions: const InteractionOptions(
-                              flags: InteractiveFlag.none,
-                            ),
-                          ),
+                      : Stack(
+                          alignment: Alignment.center,
                           children: [
-                            TileLayer(
-                              urlTemplate:
-                                  'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                              userAgentPackageName:
-                                  'co.movezy.app',
-                            ),
-                            // Pulsing search radius around the real pickup.
-                            AnimatedBuilder(
-                              animation: _pulseController,
-                              builder: (context, _) => CircleLayer(
-                                circles: [
-                                  CircleMarker(
-                                    point: _pickup!,
-                                    radius: 60 + _pulseController.value * 40,
-                                    color: HexColor("#FF6200")
-                                        .withOpacity(0.12),
-                                    borderColor: HexColor("#FF6200")
-                                        .withOpacity(0.45),
-                                    borderStrokeWidth: 1.5,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            MarkerLayer(
+                            MovezyMap(
+                              initialCenter: _pickup!,
+                              initialZoom: 15,
+                              // Purely informational while we search.
+                              interactive: false,
                               markers: [
-                                Marker(
+                                MapMarker(
+                                  id: 'pickup',
+                                  key: 'finding-pickup',
                                   point: _pickup!,
                                   width: 40,
                                   height: 40,
@@ -352,6 +328,30 @@ class _RideFindingScreenState extends State<RideFindingScreen>
                                       color: HexColor("#FF6200"), size: 40),
                                 ),
                               ],
+                            ),
+                            // Pulsing search radius around the real pickup,
+                            // which sits at the map's centre.
+                            IgnorePointer(
+                              child: AnimatedBuilder(
+                                animation: _pulseController,
+                                builder: (context, _) {
+                                  final r = 60 + _pulseController.value * 40;
+                                  return Container(
+                                    width: r * 2,
+                                    height: r * 2,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: HexColor("#FF6200")
+                                          .withOpacity(0.12),
+                                      border: Border.all(
+                                        color: HexColor("#FF6200")
+                                            .withOpacity(0.45),
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                           ],
                         ),

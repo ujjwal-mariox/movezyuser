@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:hexcolor/hexcolor.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:movezy_user_app/CommonWidgets/movezy_map.dart';
 import 'package:movezy_user_app/CommonWidgets/location_icon.dart';
 import 'package:movezy_user_app/Services/routing_service.dart';
 
@@ -52,7 +52,7 @@ class _LiveTrackingMapScreenState extends State<LiveTrackingMapScreen> {
     if (mounted) setState(() => _roadRoute = points);
   }
 
-  final MapController _map = MapController();
+  final MovezyMapController _map = MovezyMapController();
   LatLng? _driver;
   bool _follow = true;
 
@@ -64,12 +64,13 @@ class _LiveTrackingMapScreenState extends State<LiveTrackingMapScreen> {
     widget.driverStream?.listen((pos) {
       if (!mounted) return;
       setState(() => _driver = pos);
-      if (_follow) _map.move(pos, _map.camera.zoom);
+      if (_follow) _map.move(pos, _map.zoom, animate: true);
     });
   }
 
-  /// Frame everything we know about, so the user sees the whole route at once.
-  LatLngBounds? get _bounds {
+  /// Frame everything we know about, so the user sees the whole route at once
+  /// (with ~1 km of margin, as before).
+  List<LatLng>? get _bounds {
     final pts = [widget.pickup, widget.drop, _driver].whereType<LatLng>().toList();
     if (pts.length < 2) return null;
     var minLat = pts.first.latitude, maxLat = pts.first.latitude;
@@ -80,16 +81,18 @@ class _LiveTrackingMapScreenState extends State<LiveTrackingMapScreen> {
       if (p.longitude < minLng) minLng = p.longitude;
       if (p.longitude > maxLng) maxLng = p.longitude;
     }
-    return LatLngBounds(
+    return [
       LatLng(minLat - 0.01, minLng - 0.01),
       LatLng(maxLat + 0.01, maxLng + 0.01),
-    );
+    ];
   }
 
   LatLng get _center =>
       _driver ?? widget.pickup ?? widget.drop ?? const LatLng(28.6139, 77.2090);
 
-  Marker _pin(LatLng at, IconData icon, Color color) => Marker(
+  MapMarker _pin(String id, LatLng at, IconData icon, Color color) => MapMarker(
+        id: id,
+        key: 'live-${icon.codePoint}-${color.toARGB32()}',
         point: at,
         width: 40,
         height: 40,
@@ -120,45 +123,33 @@ class _LiveTrackingMapScreenState extends State<LiveTrackingMapScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          FlutterMap(
-            mapController: _map,
-            options: MapOptions(
-              initialCenter: _center,
-              initialZoom: 13,
-              initialCameraFit: _bounds != null
-                  ? CameraFit.bounds(bounds: _bounds!, padding: const EdgeInsets.all(60))
-                  : null,
-              // Any manual gesture means the user wants to look around — stop
-              // yanking the camera back to the driver.
-              onPositionChanged: (_, hasGesture) {
-                if (hasGesture && _follow) setState(() => _follow = false);
-              },
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'co.movezy.app',
-              ),
+          MovezyMap(
+            controller: _map,
+            initialCenter: _center,
+            initialZoom: 13,
+            fitPoints: _bounds,
+            fitPadding: 60,
+            // Any manual gesture means the user wants to look around — stop
+            // yanking the camera back to the driver.
+            onCameraMove: (_, _, byUser) {
+              if (byUser && _follow) setState(() => _follow = false);
+            },
+            lines: [
               if (route.length >= 2)
-                PolylineLayer(
-                  polylines: [
-                    Polyline(
-                      points: route,
-                      strokeWidth: 3,
-                      color: HexColor("#FF6200").withValues(alpha: 0.6),
-                    ),
-                  ],
+                MapLine(
+                  id: 'route',
+                  points: route,
+                  width: 3,
+                  color: HexColor("#FF6200").withValues(alpha: 0.6),
                 ),
-              MarkerLayer(
-                markers: [
-                  if (widget.pickup != null)
-                    _pin(widget.pickup!, Icons.trip_origin, HexColor("#2E9E5B")),
-                  if (widget.drop != null)
-                    _pin(widget.drop!, Icons.location_on, HexColor("#EE3E35")),
-                  if (_driver != null)
-                    _pin(_driver!, Icons.local_shipping, HexColor("#FF6200")),
-                ],
-              ),
+            ],
+            markers: [
+              if (widget.pickup != null)
+                _pin('pickup', widget.pickup!, Icons.trip_origin, HexColor("#2E9E5B")),
+              if (widget.drop != null)
+                _pin('drop', widget.drop!, Icons.location_on, HexColor("#EE3E35")),
+              if (_driver != null)
+                _pin('driver', _driver!, Icons.local_shipping, HexColor("#FF6200")),
             ],
           ),
 

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -71,12 +70,6 @@ void phoneSize(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-class LocalTiles extends TileProvider {
-  @override
-  ImageProvider getImage(TileCoordinates coordinates, TileLayer options) =>
-      const AssetImage('assets/current_location.png');
-}
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() async {
@@ -89,7 +82,7 @@ void main() {
     var requests = 0;
     BookingData? proceeded;
     await tester.pumpWidget(MaterialApp(home: SearchScreen(bookingData: trip(),
-      mapTileProvider: LocalTiles(), loadPreviewRoute: (points) async => points,
+      showPreviewMap: false, loadPreviewRoute: (points) async => points,
       checkVehicleAvailability: (_) async {
         if (++requests == 1) throw const VehicleOptionsException('CONNECTION', 'Check your connection and try again.');
         return result(const VehicleAvailability(availableCount: 1, preferredCode: 'AVAILABLE'));
@@ -111,7 +104,7 @@ void main() {
     final checked = <BookingData>[];
     BookingData? proceeded;
     await tester.pumpWidget(MaterialApp(home: SearchScreen(bookingData: trip(),
-      mapTileProvider: LocalTiles(), loadPreviewRoute: (points) async => points,
+      showPreviewMap: false, loadPreviewRoute: (points) async => points,
       checkVehicleAvailability: (data) async {
         checked.add(data);
         if (checked.length == 1) return result(overLimit);
@@ -235,7 +228,7 @@ void main() {
         MaterialApp(
           home: SearchScreen(
             bookingData: trip(),
-            mapTileProvider: LocalTiles(),
+            showPreviewMap: false,
             loadPreviewRoute: (points) async => points,
             checkVehicleAvailability: (data) async {
               checked.add(data);
@@ -276,7 +269,7 @@ void main() {
         MaterialApp(
           home: SearchScreen(
             bookingData: trip(),
-            mapTileProvider: LocalTiles(),
+            showPreviewMap: false,
             loadPreviewRoute: (points) async => points,
             checkVehicleAvailability: (data) async {
               checked.add(data);
@@ -319,7 +312,7 @@ void main() {
         MaterialApp(
           home: SearchScreen(
             bookingData: trip(),
-            mapTileProvider: LocalTiles(),
+            showPreviewMap: false,
             loadPreviewRoute: (points) async => points,
             checkVehicleAvailability: (_) {
               requests++;

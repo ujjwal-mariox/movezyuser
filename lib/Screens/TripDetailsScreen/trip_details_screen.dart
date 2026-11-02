@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:movezy_user_app/CommonWidgets/sos_sheet.dart';
 import 'package:movezy_user_app/Services/masked_call_service.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:movezy_user_app/CommonWidgets/movezy_map.dart';
 import 'package:hexcolor/hexcolor.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:movezy_user_app/Screens/HomeScreen/Model/booking_data.dart';
@@ -232,55 +232,49 @@ class _TripDetailsScreenState extends State<TripDetailsScreen> {
           child: Stack(
             children: [
               // Non-interactive: the card is a preview; taps open the full map.
-              FlutterMap(
-                options: MapOptions(
-                  initialCenter: _driverLatLng ?? _pickupLatLng ?? pts.first,
-                  initialZoom: 12,
-                  interactionOptions:
-                      const InteractionOptions(flags: InteractiveFlag.none),
-                ),
-                children: [
-                  TileLayer(
-                    urlTemplate:
-                        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'co.movezy.app',
-                  ),
+              MovezyMap(
+                initialCenter: _driverLatLng ?? _pickupLatLng ?? pts.first,
+                initialZoom: 12,
+                interactive: false,
+                lines: [
                   if (_pickupLatLng != null && _dropLatLng != null)
-                    PolylineLayer(
-                      polylines: [
-                        Polyline(
-                          // Real road route once loaded; the straight line
-                          // until then so the preview is never empty.
-                          points: _roadRoute.isNotEmpty
-                              ? _roadRoute
-                              : [_pickupLatLng!, _dropLatLng!],
-                          strokeWidth: 2,
-                          color: HexColor("#FF6200"),
-                        ),
-                      ],
+                    MapLine(
+                      id: 'route',
+                      // Real road route once loaded; the straight line
+                      // until then so the preview is never empty.
+                      points: _roadRoute.isNotEmpty
+                          ? _roadRoute
+                          : [_pickupLatLng!, _dropLatLng!],
+                      width: 2,
+                      color: HexColor("#FF6200"),
                     ),
-                  MarkerLayer(
-                    markers: [
-                      for (final p in pts)
-                        Marker(
-                          point: p,
-                          width: 12,
-                          height: 12,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: p == _driverLatLng
-                                  ? HexColor("#FF6200")
-                                  : (p == _pickupLatLng
-                                      ? HexColor("#2E9E5B")
-                                      : HexColor("#EE3E35")),
-                              shape: BoxShape.circle,
-                              border:
-                                  Border.all(color: Colors.white, width: 1.5),
-                            ),
+                ],
+                markers: [
+                  for (final p in pts)
+                    () {
+                      final role = p == _driverLatLng
+                          ? 'driver'
+                          : (p == _pickupLatLng ? 'pickup' : 'drop');
+                      return MapMarker(
+                        id: 'dot-$role',
+                        key: 'trip-dot-$role',
+                        point: p,
+                        width: 12,
+                        height: 12,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: role == 'driver'
+                                ? HexColor("#FF6200")
+                                : (role == 'pickup'
+                                    ? HexColor("#2E9E5B")
+                                    : HexColor("#EE3E35")),
+                            shape: BoxShape.circle,
+                            border:
+                                Border.all(color: Colors.white, width: 1.5),
                           ),
                         ),
-                    ],
-                  ),
+                      );
+                    }(),
                 ],
               ),
               // Affordance: make it obvious this opens something.
