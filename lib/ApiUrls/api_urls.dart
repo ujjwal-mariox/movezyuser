@@ -75,6 +75,8 @@ class ApiUrls {
   /// Every active FAQ, ungrouped — the Help screen derives its categories
   /// from this so admin-created categories appear without an app release.
   static String supportAllFaqsUrl = "$baseUrlApi/support/faqs";
+  /// Guided support tree for the chat assistant.
+  static String supportFlowUrl = "$baseUrlApi/support/flow";
   static String supportFaqFeedbackUrl(String faqId) =>
       "$baseUrlApi/support/faqs/$faqId/feedback";
 

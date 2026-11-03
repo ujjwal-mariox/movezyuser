@@ -156,7 +156,9 @@ class SupportService {
   }
 
   /// Returns the ticket plus its CUSTOMER-channel messages.
-  static Future<(SupportTicket, List<SupportMessage>)> getThread(
+  /// The ticket, its messages, and the chips to offer for the customer's
+  /// reply after an agent message (from the issue picked in the chat).
+  static Future<(SupportTicket, List<SupportMessage>, List<String>)> getThread(
       String ticketId) async {
     final res = await http
         .get(Uri.parse(ApiUrls.supportTicketDetailUrl(ticketId)),
@@ -173,7 +175,9 @@ class SupportService {
     final msgs = ((data['messages'] as List?) ?? [])
         .map((e) => SupportMessage.fromJson(Map<String, dynamic>.from(e)))
         .toList();
-    return (ticket, msgs);
+    final followUps =
+        ((data['followUps'] as List?) ?? []).map((e) => e.toString()).toList();
+    return (ticket, msgs, followUps);
   }
 
   /// Reply on an open ticket. Returns (ok, message).

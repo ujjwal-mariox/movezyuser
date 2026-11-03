@@ -190,6 +190,7 @@ class _SupportTicketThreadScreenState extends State<SupportTicketThreadScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   List<SupportMessage> _messages = [];
+  List<String> _followUps = [];
   late SupportTicket _ticket;
   bool _loading = true;
   bool _sending = false;
@@ -215,12 +216,13 @@ class _SupportTicketThreadScreenState extends State<SupportTicketThreadScreen> {
 
   Future<void> _load({bool quiet = false}) async {
     try {
-      final (t, msgs) = await SupportService.getThread(_ticket.id);
+      final (t, msgs, followUps) = await SupportService.getThread(_ticket.id);
       if (!mounted) return;
       final grew = msgs.length != _messages.length;
       setState(() {
         _ticket = t;
         _messages = msgs;
+        _followUps = followUps;
         _loading = false;
       });
       if (grew) _scrollToEnd();
@@ -238,8 +240,9 @@ class _SupportTicketThreadScreenState extends State<SupportTicketThreadScreen> {
     });
   }
 
-  Future<void> _send() async {
-    final text = _input.text.trim();
+  /// Sends what's typed, or [chip] when a follow-up chip was tapped.
+  Future<void> _send([String? chip]) async {
+    final text = (chip ?? _input.text).trim();
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
 
@@ -248,7 +251,7 @@ class _SupportTicketThreadScreenState extends State<SupportTicketThreadScreen> {
     setState(() => _sending = false);
 
     if (ok) {
-      _input.clear();
+      if (chip == null) _input.clear();
       await _load();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -313,6 +316,39 @@ class _SupportTicketThreadScreenState extends State<SupportTicketThreadScreen> {
                         itemBuilder: (_, i) => _bubble(_messages[i]),
                       )),
           ),
+          // After an agent reply, quick answers for this issue; typing works too.
+          if (!_ticket.isClosed &&
+              _followUps.isNotEmpty &&
+              _messages.isNotEmpty &&
+              !_messages.last.isMine)
+            Container(
+              width: double.infinity,
+              color: HexColor("#F5F7F9"),
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final f in _followUps)
+                    InkWell(
+                      onTap: _sending ? null : () => _send(f),
+                      borderRadius: BorderRadius.circular(18),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 13, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: HexColor("#E1E6EF")),
+                        ),
+                        child: Text(f,
+                            style: const TextStyle(
+                                fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           if (_ticket.isClosed)
             Container(
               width: double.infinity,

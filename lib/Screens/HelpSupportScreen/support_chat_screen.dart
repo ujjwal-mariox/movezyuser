@@ -8,15 +8,16 @@ import 'package:movezy_user_app/CommonWidgets/app_bar.dart';
 import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
 
-/// Support chat: a bot first, a person second.
+/// Support chat: a guided assistant first, a person second.
 ///
-/// The bot side is deliberately NOT an AI — it answers from the admin-managed
-/// FAQ table (the same rows the Help screen shows), so every reply is something
-/// support actually wrote. When that fails the customer, "Talk to an agent"
-/// files a REAL support ticket and this same screen becomes the live thread:
-/// messages go to POST /support/tickets/:id/messages and staff replies arrive
-/// by polling the ticket. Tickets were previously the only channel, and the
-/// client asked for chat-first with tickets kept underneath.
+/// The assistant is deliberately NOT an AI — it walks the support tree the
+/// server keeps (GET /support/flow): topic → issue → answer, one set of chips
+/// per step, so every reply is something support actually wrote. When that
+/// fails the customer, "Still need help" files a REAL support ticket carrying
+/// the picked issue, and this same screen becomes the live thread: messages go
+/// to POST /support/tickets/:id/messages, staff replies arrive by polling the
+/// ticket, and each reply brings follow-up chips for that issue. Typing a
+/// message of their own always works too.
 class SupportChatScreen extends StatefulWidget {
   const SupportChatScreen({super.key});
 
@@ -37,12 +38,15 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
 
-  /// FAQ rows grouped by category, loaded once from the server.
-  Map<String, List<Map<String, dynamic>>> _faqsByCategory = {};
-  bool _loadingFaqs = true;
+  /// The support tree, loaded once from the server.
+  List<Map<String, dynamic>> _flow = [];
+  bool _loadingFlow = true;
 
-  /// Bot conversation state.
-  String? _pickedCategory;
+  /// Nodes picked so far, root first. Its last entry is where the chat is.
+  final List<Map<String, dynamic>> _trail = [];
+
+  /// Chips for the customer's next message once an agent has replied.
+  List<String> _followUps = [];
 
   /// Live-thread state. Null until the customer escalates.
   String? _ticketId;
@@ -60,11 +64,11 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   void initState() {
     super.initState();
     _entries.add(const _ChatEntry(
-      'Hi! I can help with common questions right away. Pick a topic below — '
-      'or talk to an agent at any time.',
+      'Hi! What do you need help with? Pick a topic below — or talk to an agent '
+      'at any time.',
       fromBot: true,
     ));
-    _loadFaqs();
+    _loadFlow();
   }
 
   @override
@@ -75,29 +79,25 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     super.dispose();
   }
 
-  Future<void> _loadFaqs() async {
+  Future<void> _loadFlow() async {
     try {
-      final res = await http.get(
-        Uri.parse('${ApiUrls.baseUrlApi}/support/faqs'),
-        headers: _headers,
-      );
+      final res = await http.get(Uri.parse(ApiUrls.supportFlowUrl), headers: _headers);
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final List rows = data['data'] ?? [];
-        final grouped = <String, List<Map<String, dynamic>>>{};
-        for (final r in rows) {
-          final cat = (r['category'] ?? 'general').toString();
-          grouped.putIfAbsent(cat, () => []).add(Map<String, dynamic>.from(r));
+        final List rows = jsonDecode(res.body)['data'] ?? [];
+        if (mounted) {
+          setState(() {
+            _flow = rows.map((r) => Map<String, dynamic>.from(r)).toList();
+            _loadingFlow = false;
+          });
         }
-        if (mounted) setState(() { _faqsByCategory = grouped; _loadingFaqs = false; });
         return;
       }
     } catch (e) {
-      debugPrint('Support chat FAQ load failed: $e');
+      debugPrint('Support chat flow load failed: $e');
     }
-    // No FAQs — the bot has nothing to answer from; go straight to an agent
-    // rather than presenting empty topic chips.
-    if (mounted) setState(() => _loadingFaqs = false);
+    // No tree: the assistant has nothing to offer, so only "Talk to an agent"
+    // shows rather than empty topic chips.
+    if (mounted) setState(() => _loadingFlow = false);
   }
 
   void _scrollToEnd() {
@@ -109,28 +109,54 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     });
   }
 
-  // ─── Bot flow ───
+  // ─── Guided flow ───
 
-  void _pickCategory(String cat) {
+  List<Map<String, dynamic>> _childrenOf(Map<String, dynamic>? node) {
+    final List rows = node == null ? _flow : (node['children'] ?? const []);
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  /// The customer tapped a topic or issue: say it, then the assistant either
+  /// asks the next question, answers, or connects to an agent.
+  void _pickNode(Map<String, dynamic> node) {
     setState(() {
-      _pickedCategory = cat;
-      _entries.add(_ChatEntry(_labelFor(cat), fromCustomer: true));
-      _entries.add(const _ChatEntry('Here is what I can answer on that — tap a question:', fromBot: true));
+      _trail.add(node);
+      _entries.add(_ChatEntry((node['label'] ?? '').toString(), fromCustomer: true));
+      final prompt = node['prompt']?.toString();
+      final answer = node['answer']?.toString();
+      if (_childrenOf(node).isNotEmpty) {
+        _entries.add(_ChatEntry(prompt ?? 'Tell me a bit more:', fromBot: true));
+      } else if (answer != null) {
+        _entries.add(_ChatEntry(answer, fromBot: true));
+        if (node['escalateNow'] != true) {
+          _entries.add(const _ChatEntry('Did that help?', fromBot: true));
+        }
+      }
+    });
+    _scrollToEnd();
+    if (node['escalateNow'] == true) _talkToAgent();
+  }
+
+  void _answerHelped() {
+    setState(() {
+      _trail.clear();
+      _entries.add(const _ChatEntry('That helped', fromCustomer: true));
+      _entries.add(const _ChatEntry('Glad that sorted it. Anything else?', fromBot: true));
     });
     _scrollToEnd();
   }
 
-  void _pickQuestion(Map<String, dynamic> faq) {
+  void _stepBack() {
     setState(() {
-      _entries.add(_ChatEntry((faq['question'] ?? '').toString(), fromCustomer: true));
-      _entries.add(_ChatEntry((faq['answer'] ?? '').toString(), fromBot: true));
-      _entries.add(const _ChatEntry('Did that solve it? If not, pick another question or talk to an agent.', fromBot: true));
+      _trail.removeLast();
+      _entries.add(_ChatEntry(
+          _trail.isEmpty
+              ? 'Pick another topic:'
+              : _trail.last['prompt']?.toString() ?? 'Tell me a bit more:',
+          fromBot: true));
     });
     _scrollToEnd();
   }
-
-  String _labelFor(String cat) =>
-      cat.isEmpty ? cat : cat[0].toUpperCase() + cat.substring(1);
 
   // ─── Escalation to a live agent ───
 
@@ -143,15 +169,19 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       final transcript = _entries
           .map((e) => '${e.fromCustomer ? "Customer" : e.fromBot ? "Bot" : "Agent"}: ${e.text}')
           .join('\n');
+      // The picked issue sets the ticket's category, subject, priority and
+      // path on the server; without one it is a general chat.
       final res = await http.post(
         Uri.parse(ApiUrls.supportTicketsUrl),
         headers: _headers,
         body: jsonEncode({
-          'category': _pickedCategory ?? 'other',
-          'subject': 'Chat support${_pickedCategory != null ? ' — ${_labelFor(_pickedCategory!)}' : ''}',
+          if (_trail.isNotEmpty)
+            'supportNodeId': _trail.last['id']
+          else ...{
+            'category': 'OTHER',
+            'subject': 'Chat support',
+          },
           'message': transcript.isEmpty ? 'Customer requested chat support.' : transcript,
-          // No priority sent — the server derives it from the category, so a
-          // payment escalation lands HIGH instead of a hardcoded MEDIUM.
         }),
       );
       final body = jsonDecode(res.body);
@@ -195,6 +225,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       final data = jsonDecode(res.body)['data'];
       final List messages = data?['messages'] ?? [];
       final status = (data?['ticket']?['status'] ?? '').toString();
+      final List followUps = data?['followUps'] ?? const [];
 
       // Only append what we haven't rendered. The thread includes our own
       // messages too; those are already on screen the moment they were sent,
@@ -210,7 +241,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
           }
         }
         if (added && mounted) {
-          setState(() {});
+          setState(() => _followUps = followUps.map((f) => f.toString()).toList());
           _scrollToEnd();
         }
       }
@@ -230,14 +261,16 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     }
   }
 
-  Future<void> _sendMessage() async {
-    final text = _input.text.trim();
+  /// Sends what's typed, or [chip] when a follow-up chip was tapped.
+  Future<void> _sendMessage([String? chip]) async {
+    final text = (chip ?? _input.text).trim();
     final id = _ticketId;
     if (text.isEmpty || id == null || _sending || _ticketClosed) return;
     setState(() {
       _sending = true;
+      _followUps = [];
       _entries.add(_ChatEntry(text, fromCustomer: true));
-      _input.clear();
+      if (chip == null) _input.clear();
     });
     _scrollToEnd();
     try {
@@ -357,11 +390,19 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     );
   }
 
-  /// The chips the bot offers at the current step. Hidden once live — the
-  /// conversation belongs to the agent then.
+  /// The chips for the current step: the tree's options before an agent is
+  /// involved, then the issue's follow-ups after each agent reply.
   Widget _interactionArea() {
-    if (_ticketId != null) return const SizedBox(height: 4);
-    if (_loadingFaqs) {
+    if (_ticketId != null) {
+      if (_ticketClosed || _followUps.isEmpty) return const SizedBox(height: 4);
+      return Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 12),
+        child: Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final f in _followUps) _chip(f, () => _sendMessage(f)),
+        ]),
+      );
+    }
+    if (_loadingFlow) {
       return const Padding(
         padding: EdgeInsets.all(12),
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
@@ -369,25 +410,20 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     }
 
     final chips = <Widget>[];
-    if (_pickedCategory == null) {
-      for (final cat in _faqsByCategory.keys) {
-        chips.add(_chip(_labelFor(cat), () => _pickCategory(cat)));
-      }
+    final here = _trail.isEmpty ? null : _trail.last;
+    final options = _childrenOf(here);
+    if (here != null && options.isEmpty) {
+      // An answer was given: did it help?
+      chips.add(_chip('That helped', _answerHelped));
+      chips.add(_chip(_sending ? 'Connecting…' : 'Still need help', _talkToAgent, accent: true));
+      chips.add(_chip('← Back', _stepBack, outlined: true));
     } else {
-      for (final faq in _faqsByCategory[_pickedCategory] ?? const []) {
-        chips.add(_chip((faq['question'] ?? '').toString(), () => _pickQuestion(faq)));
+      for (final node in options) {
+        chips.add(_chip((node['label'] ?? '').toString(), () => _pickNode(node)));
       }
-      chips.add(_chip('← Other topics', () {
-        setState(() => _pickedCategory = null);
-        _scrollToEnd();
-      }, outlined: true));
+      if (here != null) chips.add(_chip('← Back', _stepBack, outlined: true));
+      chips.add(_chip(_sending ? 'Connecting…' : 'Talk to an agent', _talkToAgent, accent: true));
     }
-
-    chips.add(_chip(
-      _sending ? 'Connecting…' : 'Talk to an agent',
-      _talkToAgent,
-      accent: true,
-    ));
 
     return Padding(
       padding: const EdgeInsets.only(top: 4, bottom: 12),
@@ -421,9 +457,9 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     );
   }
 
-  /// Text input — enabled only in live mode. The bot is tap-driven, and an
-  /// enabled box implying "type to the bot" would just funnel free text into
-  /// nothing.
+  /// Text input — enabled only in live mode. The assistant is tap-driven, and
+  /// an enabled box implying "type to the assistant" would just funnel free
+  /// text into nothing.
   Widget _composer(bool live) {
     return Container(
       color: Colors.white,
