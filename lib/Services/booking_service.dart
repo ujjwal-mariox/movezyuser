@@ -761,6 +761,10 @@ class BookingService {
     // backend SMSs them at pickup, since they aren't an app user.
     String? receiverName,
     String? receiverPhone,
+    // Sender at pickup, only when it isn't the customer. The driver calls
+    // them to collect the goods.
+    String? senderName,
+    String? senderPhone,
     // Scheduled pickup. When set, the backend creates the booking as DRAFT and
     // the scheduled-dispatch job sends it to drivers near the pickup time.
     String? scheduledDate,
@@ -806,6 +810,10 @@ class BookingService {
         'receiverName': receiverName.trim(),
       if (receiverPhone != null && receiverPhone.trim().isNotEmpty)
         'receiverPhone': receiverPhone.trim(),
+      if (senderName != null && senderName.trim().isNotEmpty)
+        'senderName': senderName.trim(),
+      if (senderPhone != null && senderPhone.trim().isNotEmpty)
+        'senderPhone': senderPhone.trim(),
       if (scheduledDate != null) 'scheduledDate': scheduledDate,
       if (scheduledTimeSlotId != null)
         'scheduledTimeSlotId': scheduledTimeSlotId,

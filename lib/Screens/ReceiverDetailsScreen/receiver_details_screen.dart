@@ -26,10 +26,16 @@ class ReceiverDetailsResult {
   final String name;
   final String phone;
 
+  /// Sender at pickup; both empty when the customer is the sender.
+  final String senderName;
+  final String senderPhone;
+
   const ReceiverDetailsResult({
     this.changeDrop = false,
     required this.name,
     required this.phone,
+    this.senderName = '',
+    this.senderPhone = '',
   });
 }
 
@@ -41,6 +47,10 @@ class ReceiverDetailsResult {
 /// Both receiver fields are optional (client decision): left blank, the
 /// customer is the contact at the drop. A number, when given, must be a valid
 /// 10-digit mobile — the backend texts it when the parcel is picked up.
+///
+/// The sender comes first (client feedback, 2026-10-26): "I'm the sender" is
+/// ticked by default; unticked, the sender's mobile is required, because the
+/// driver calls them to collect the goods.
 ///
 /// [editOnly] is the checkout's "Edit": the same screen, but Confirm returns
 /// the details instead of opening checkout, and the drop can't be changed
@@ -69,6 +79,10 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
 
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _senderNameController = TextEditingController();
+  final _senderPhoneController = TextEditingController();
+  bool _senderIsMe = true;
+  String? _senderPhoneError;
 
   String _ownName = '';
   String _ownPhone = '';
@@ -85,6 +99,11 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
     super.initState();
     _nameController.text = widget.bookingData.receiverName ?? '';
     _phoneController.text = widget.bookingData.receiverPhone ?? '';
+    _senderNameController.text = widget.bookingData.senderName ?? '';
+    _senderPhoneController.text = widget.bookingData.senderPhone ?? '';
+    _senderIsMe = _senderPhoneController.text.trim().isEmpty;
+    _senderNameController.addListener(_syncSender);
+    _senderPhoneController.addListener(_syncSender);
     _ownPhone = _tenDigits(Prefs.getString('mobile_number'));
     _useMyNumber =
         _ownPhone.isNotEmpty && _phoneController.text.trim() == _ownPhone;
@@ -102,6 +121,8 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
+    _senderNameController.dispose();
+    _senderPhoneController.dispose();
     super.dispose();
   }
 
@@ -169,9 +190,19 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
     if (_submitting) return;
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
+    final senderName = _senderIsMe ? '' : _senderNameController.text.trim();
+    final senderPhone = _senderIsMe ? '' : _senderPhoneController.text.trim();
+    final senderError = _senderIsMe
+        ? null
+        : senderPhone.isEmpty
+            ? "Enter the sender's mobile number"
+            : _validatePhone(senderPhone);
     final error = _validatePhone(phone);
-    if (error != null) {
-      setState(() => _phoneError = error);
+    if (error != null || senderError != null) {
+      setState(() {
+        _phoneError = error;
+        _senderPhoneError = senderError;
+      });
       return;
     }
     FocusScope.of(context).unfocus();
@@ -184,8 +215,18 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
       if (!mounted) return;
       widget.bookingData.receiverName = name;
       widget.bookingData.receiverPhone = phone;
+      widget.bookingData.senderName = senderName;
+      widget.bookingData.senderPhone = senderPhone;
       if (widget.editOnly) {
-        Navigator.pop(context, ReceiverDetailsResult(name: name, phone: phone));
+        Navigator.pop(
+          context,
+          ReceiverDetailsResult(
+            name: name,
+            phone: phone,
+            senderName: senderName,
+            senderPhone: senderPhone,
+          ),
+        );
       } else {
         await pushTo(
           context,
@@ -193,6 +234,8 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
             bookingData: widget.bookingData.copyWith(
               receiverName: name,
               receiverPhone: phone,
+              senderName: senderName,
+              senderPhone: senderPhone,
             ),
           ),
         );
@@ -300,6 +343,8 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
         changeDrop: true,
         name: _nameController.text.trim(),
         phone: _phoneController.text.trim(),
+        senderName: _senderIsMe ? '' : _senderNameController.text.trim(),
+        senderPhone: _senderIsMe ? '' : _senderPhoneController.text.trim(),
       ),
     );
   }
@@ -326,6 +371,8 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _addressCard(),
+                  const SizedBox(height: 20),
+                  ..._senderSection(),
                   const SizedBox(height: 20),
                   Text('Receiver details',
                       style: GoogleFonts.poppins(
@@ -449,6 +496,89 @@ class _ReceiverDetailsScreenState extends State<ReceiverDetailsScreen> {
         ],
       ),
     );
+  }
+
+  /// Keeps the sender on the shared BookingData as it changes, like the
+  /// receiver, so backing out or tapping Change never loses it.
+  void _syncSender() {
+    widget.bookingData.senderName =
+        _senderIsMe ? '' : _senderNameController.text.trim();
+    widget.bookingData.senderPhone =
+        _senderIsMe ? '' : _senderPhoneController.text.trim();
+  }
+
+  void _setSenderIsMe(bool value) {
+    setState(() {
+      _senderIsMe = value;
+      _senderPhoneError = null;
+    });
+    _syncSender();
+  }
+
+  /// Who hands over the goods at pickup. Ticked by default: the customer.
+  List<Widget> _senderSection() {
+    final me = [_ownName, _ownPhone].where((s) => s.isNotEmpty).join(' · ');
+    return [
+      Text('Sender details',
+          style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600)),
+      const SizedBox(height: 2),
+      Text(
+        'Who hands over the goods at pickup. The driver calls them to collect.',
+        style: GoogleFonts.poppins(fontSize: 11.5, color: Colors.grey.shade600),
+      ),
+      const SizedBox(height: 4),
+      InkWell(
+        onTap: () => _setSenderIsMe(!_senderIsMe),
+        child: Row(
+          children: [
+            Checkbox(
+              value: _senderIsMe,
+              onChanged: (v) => _setSenderIsMe(v ?? true),
+              activeColor: AppColors.appColor,
+              visualDensity: VisualDensity.compact,
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+            ),
+            Expanded(
+              child: Text.rich(TextSpan(children: [
+                TextSpan(
+                    text: "I'm the sender",
+                    style: GoogleFonts.poppins(fontSize: 13)),
+                if (me.isNotEmpty)
+                  TextSpan(
+                      text: ' : $me',
+                      style: GoogleFonts.poppins(
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+              ])),
+            ),
+          ],
+        ),
+      ),
+      if (!_senderIsMe) ...[
+        const SizedBox(height: 8),
+        TextField(
+          controller: _senderNameController,
+          textCapitalization: TextCapitalization.words,
+          textInputAction: TextInputAction.next,
+          style: GoogleFonts.poppins(fontSize: 14),
+          decoration:
+              _fieldDecoration("Sender's name", icon: Icons.person_outline),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _senderPhoneController,
+          keyboardType: TextInputType.phone,
+          maxLength: 10,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: GoogleFonts.poppins(fontSize: 14),
+          onChanged: (_) => setState(() => _senderPhoneError = null),
+          decoration: _fieldDecoration(
+            "Sender's mobile number",
+            icon: Icons.phone_outlined,
+          ).copyWith(counterText: '', errorText: _senderPhoneError),
+        ),
+      ],
+    ];
   }
 
   /// The drop on the map, with the pin and its caption. Not interactive: the

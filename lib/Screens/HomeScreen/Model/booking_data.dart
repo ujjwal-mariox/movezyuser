@@ -20,6 +20,11 @@ class BookingData {
   String? receiverName;
   String? receiverPhone;
 
+  /// Who hands over the goods at pickup, when it isn't the customer. Empty
+  /// means the customer is the sender.
+  String? senderName;
+  String? senderPhone;
+
   /// Pickup coordinates
   double? pickupLat;
   double? pickupLng;
@@ -79,6 +84,8 @@ class BookingData {
     this.dropAddress,
     this.receiverName,
     this.receiverPhone,
+    this.senderName,
+    this.senderPhone,
     this.pickupLat,
     this.pickupLng,
     this.pickupCity,
@@ -112,6 +119,8 @@ class BookingData {
     String? dropAddress,
     String? receiverName,
     String? receiverPhone,
+    String? senderName,
+    String? senderPhone,
     double? pickupLat,
     double? pickupLng,
     String? pickupCity,
@@ -142,6 +151,8 @@ class BookingData {
       pickupCity: clearPickupCity ? null : pickupCity ?? this.pickupCity,
       receiverName: receiverName ?? this.receiverName,
       receiverPhone: receiverPhone ?? this.receiverPhone,
+      senderName: senderName ?? this.senderName,
+      senderPhone: senderPhone ?? this.senderPhone,
       dropLat: dropLat ?? this.dropLat,
       stops: stops ?? this.stops,
       dropLng: dropLng ?? this.dropLng,

@@ -33,6 +33,23 @@ class VehicleSelectionScreen extends StatefulWidget {
 
 class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
   List<VehicleOption> _options = [];
+
+  /// The category shown (2W / 3W / 4W / HV): the home card that was tapped,
+  /// switchable with the tabs above the list (client decision, 2026-11-04).
+  String? _category;
+
+  static const _categoryOrder = ['2W', '3W', '4W', 'HV'];
+  static const _categoryLabels = {
+    '2W': '2 Wheeler',
+    '3W': '3 Wheeler',
+    '4W': '4 Wheeler',
+    'HV': 'Heavy Vehicle',
+  };
+
+  /// Categories that have a vehicle for this trip, by size.
+  List<String> get _categories => _categoryOrder
+      .where((c) => _options.any((o) => o.categoryCode == c))
+      .toList();
   bool _isLoading = true;
   String? _error;
   VehicleOptionsException? _failure;
@@ -144,6 +161,13 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
             final recIdx = options.indexWhere((o) => o.isRecommended);
             if (options.isNotEmpty) _selectedIndex = recIdx >= 0 ? recIdx : 0;
           }
+          // Show the tapped card's category, else the selected vehicle's.
+          final priorCategory = _bookingData.selectedVehicle?.categoryCode;
+          _category = _categories.contains(priorCategory)
+              ? priorCategory
+              : _selectedIndex != null
+                  ? options[_selectedIndex!].categoryCode
+                  : (_categories.isEmpty ? null : _categories.first);
         });
       }
     } catch (e) {
@@ -168,6 +192,49 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
         });
       }
     }
+  }
+
+  /// One tab per category with a vehicle for this trip. Switching keeps the
+  /// selection when it is in the new category, else picks its first (smallest).
+  Widget _categoryTabs() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final code in _categories)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Text(_categoryLabels[code] ?? code),
+                selected: _category == code,
+                showCheckmark: false,
+                selectedColor: AppColors.appColor,
+                backgroundColor: Colors.white,
+                side: BorderSide(
+                  color: _category == code
+                      ? AppColors.appColor
+                      : const Color(0xFFE3E3E3),
+                ),
+                labelStyle: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _category == code ? Colors.white : Colors.black87,
+                ),
+                onSelected: (_) => setState(() {
+                  _category = code;
+                  final current = _selectedIndex == null
+                      ? null
+                      : _options[_selectedIndex!];
+                  if (current?.categoryCode != code) {
+                    final first = _options.indexWhere((o) => o.categoryCode == code);
+                    _selectedIndex = first >= 0 ? first : null;
+                  }
+                }),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   /// Convert selected VehicleOption back to HomeVehicleType for downstream screens
@@ -199,11 +266,18 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
   @override
   Widget build(BuildContext context) {
     // Selection can change here, so follow the current choice on every build.
+    // Only the chosen category's vehicles show; the server sends them smallest
+    // to largest.
+    final shown = _category == null
+        ? _options
+        : _options.where((o) => o.categoryCode == _category).toList();
     final recommended = <VehicleOption>[
-      if (_selectedIndex != null && _selectedIndex! < _options.length)
+      if (_selectedIndex != null &&
+          _selectedIndex! < _options.length &&
+          shown.contains(_options[_selectedIndex!]))
         _options[_selectedIndex!],
     ];
-    final others = _options.where((o) => !recommended.contains(o)).toList();
+    final others = shown.where((o) => !recommended.contains(o)).toList();
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -247,6 +321,11 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
                       // Distance & duration info
                       // The design has no distance/duration strip here —
                       // each row carries its own "Kg. mins" subtitle.
+
+                      if (_categories.length > 1) ...[
+                        _categoryTabs(),
+                        const SizedBox(height: 16),
+                      ],
 
                       // Recommended
                       if (recommended.isNotEmpty) ...[
@@ -604,6 +683,8 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
     _bookingData = _bookingData.copyWith(
       receiverName: updatedData.receiverName,
       receiverPhone: updatedData.receiverPhone,
+      senderName: updatedData.senderName,
+      senderPhone: updatedData.senderPhone,
     );
     if (result is ReceiverDetailsResult && result.changeDrop) {
       await _editLocations();
