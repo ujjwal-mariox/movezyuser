@@ -11,7 +11,6 @@ import 'package:movezy_user_app/AppNavigation/app_navigation.dart';
 import 'package:movezy_user_app/CommonWidgets/button_widget.dart';
 import 'package:movezy_user_app/Screens/CoinsScreen/coins_screen.dart';
 import 'package:movezy_user_app/Screens/HelpSupportScreen/help_support_screen.dart';
-import 'package:movezy_user_app/Screens/LoginScreen/login_screen.dart';
 import 'package:movezy_user_app/Screens/PorterEnterpriseScreen/porter_enterprise_screen.dart';
 import 'package:movezy_user_app/Screens/ProfileScreen/Model/user_profile_response.dart';
 import 'package:movezy_user_app/Screens/ProfileScreen/ProfileApiService/profile_api_service.dart';
@@ -22,7 +21,9 @@ import 'package:movezy_user_app/Services/referral_service.dart';
 import 'package:movezy_user_app/Utils/AppColors/app_colors.dart';
 import 'package:movezy_user_app/Utils/PermissionsManager/permissions_manager.dart';
 import 'package:movezy_user_app/Utils/PrefsManager/prefs_manager.dart';
-import 'package:movezy_user_app/Services/push_notification_service.dart';
+import 'package:movezy_user_app/Screens/DeleteAccountScreen/delete_account_screen.dart';
+import 'package:movezy_user_app/Screens/EmergencyContactsScreen/emergency_contacts_screen.dart';
+import 'package:movezy_user_app/Utils/Auth/sign_out.dart';
 import 'package:share_plus/share_plus.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -879,6 +880,17 @@ Widget _header(BuildContext context) {
                 trailing: InkWell(onTap: _shareReferral, child: _smallBtn("Share")),
               ),
             ),
+            // ─── Emergency contacts ───
+            // The people an SOS texts with a map pin; there was no way to add
+            // any before.
+            InkWell(
+              onTap: () => pushTo(context, const EmergencyContactsScreen()),
+              child: _listItem(
+                iconData: Icons.contact_emergency_outlined,
+                title: "Emergency contacts",
+                trailing: const Icon(Icons.arrow_forward_ios, size: 18),
+              ),
+            ),
             // The language selector was removed. It offered English, Hindi,
             // Tamil, Telugu, Kannada, Bengali and Marathi, but the user app has
             // no localization at all — picking one only repainted the label, so
@@ -902,15 +914,28 @@ Widget _header(BuildContext context) {
                 trailing: const Icon(Icons.arrow_forward_ios, size: 18),
               ),
             ),
+            // ─── Delete account ─── (both app stores require it)
+            InkWell(
+              onTap: () => pushTo(context, const DeleteAccountScreen()),
+              child: _listItem(
+                iconData: Icons.person_remove_outlined,
+                title: "Delete account",
+                titleColor: const Color(0xFFE02D3C),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 18),
+              ),
+            ),
           ],
         ),
       );
     }
 
     Widget _listItem({
-      required String icon,
+      String icon = '',
+      // A Material icon instead of an asset, for rows without a design PNG.
+      IconData? iconData,
       required String title,
       required Widget trailing,
+      Color? titleColor,
     }) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
@@ -918,19 +943,22 @@ Widget _header(BuildContext context) {
           children: [
             CircleAvatar(
               backgroundColor: Color(0xFFFCEDE4),
-              child: Container(
-                padding: EdgeInsets.all(8),
-                  child: Image.asset(icon, width: 30,)
-              ),
+              child: iconData != null
+                  ? Icon(iconData, color: titleColor ?? AppColors.appColor, size: 22)
+                  : Container(
+                      padding: EdgeInsets.all(8),
+                      child: Image.asset(icon, width: 30,)
+                    ),
             ),
             const SizedBox(width: 16),
 
             Expanded(
               child: Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
+                  color: titleColor,
                 ),
               ),
             ),
@@ -1022,23 +1050,7 @@ Widget _header(BuildContext context) {
 
   /// Clear the session and return to login. Extracted from the logout row so
   /// the profile-load error state can offer the same escape hatch.
-  Future<void> _logout(BuildContext context) async {
-    // Stop this phone receiving the account's pushes after sign-out.
-    await PushNotificationService.instance.unregisterDevice();
-    await Prefs.setBool('check_log_in', false);
-    await Prefs.setString('mobile_number', "");
-    await Prefs.setString('token', "");
-    await Prefs.setString('userId', "");
-    await Prefs.load();
-    Prefs.loadData();
-
-    if (!mounted) return;
-    // ignore: use_build_context_synchronously
-    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (context) => LoginScreen()),
-      (Route<dynamic> route) => false,
-    );
-  }
+  Future<void> _logout(BuildContext context) => signOut(context);
 
   Widget logoutCard(BuildContext context) {
     return InkWell(

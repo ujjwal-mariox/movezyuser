@@ -29,7 +29,7 @@ class LegalText {
 3. We do not sell your personal information to third parties.
 4. Location data is used only to facilitate pickups and deliveries.
 5. Payment information is processed through secure payment gateways.
-6. You can request account deletion by contacting support.
+6. You can delete your account from Profile → Delete account. It is removed 30 days later unless you sign in again; trip and invoice records are kept without your personal details, as the law requires.
 7. We may use anonymized data for analytics and service improvement.
 8. Push notifications are used for order updates and promotions.
 ''';

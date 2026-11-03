@@ -34,6 +34,12 @@ class ApiUrls {
       "$baseUrlApi/maps/place/${Uri.encodeComponent(placeId)}";
   static String mapsReverseUrl = "$baseUrlApi/maps/reverse";
 
+  /// Delete my account: GET = what's in the way, POST = schedule it.
+  static String accountDeletionUrl = "$baseUrlApi/user/account/deletion";
+
+  /// People an SOS texts (GET list / POST add / DELETE /{id}).
+  static String emergencyContactsUrl = "$baseUrlApi/sos/contacts";
+
   static String homeUrl = "$baseUrlApi/home";
 
   static String gstUrl = "$baseUrlApi/user/gst";

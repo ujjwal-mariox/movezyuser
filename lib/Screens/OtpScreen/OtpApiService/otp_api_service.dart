@@ -42,6 +42,11 @@ class OtpApiService {
         }
 
         Prefs.loadData();
+        // Signing in within the 30 days after "Delete account" keeps it.
+        if (json.decode(response.body)['data']?['deletionCancelled'] == true) {
+          showCustomToast(context,
+              'Welcome back! Your account deletion has been cancelled.');
+        }
         replaceRoute(context, LocationPermissionScreen());
       } else {
         showCustomToast(context, dataT.message.toString());
