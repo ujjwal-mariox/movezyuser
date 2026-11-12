@@ -675,7 +675,8 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
     );
     final result = await pushTo(
       context,
-      ReceiverDetailsScreen(bookingData: updatedData),
+      // Sender at pickup first; it opens the receiver step, then checkout.
+      ReceiverDetailsScreen(bookingData: updatedData, isSender: true),
     );
     if (!mounted) return;
     // Whatever was typed survives a trip back here (the receiver screen keeps
@@ -685,6 +686,8 @@ class _VehicleSelectionScreenState extends State<VehicleSelectionScreen> {
       receiverPhone: updatedData.receiverPhone,
       senderName: updatedData.senderName,
       senderPhone: updatedData.senderPhone,
+      pickupAddressLine: updatedData.pickupAddressLine,
+      dropAddressLine: updatedData.dropAddressLine,
     );
     if (result is ReceiverDetailsResult && result.changeDrop) {
       await _editLocations();

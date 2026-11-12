@@ -199,9 +199,11 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
   final TextEditingController _receiverNameController = TextEditingController();
   final TextEditingController _receiverPhoneController = TextEditingController();
 
-  /// Sender at pickup; both empty when the customer is the sender.
+  /// Sender at pickup, and the House / Apartment / Shop lines.
   String _senderName = '';
   String _senderPhone = '';
+  String _pickupLine = '';
+  String _dropLine = '';
 
   // Razorpay
   late Razorpay _razorpay;
@@ -226,6 +228,8 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
     _receiverPhoneController.text = widget.bookingData.receiverPhone ?? '';
     _senderName = widget.bookingData.senderName ?? '';
     _senderPhone = widget.bookingData.senderPhone ?? '';
+    _pickupLine = widget.bookingData.pickupAddressLine ?? '';
+    _dropLine = widget.bookingData.dropAddressLine ?? '';
     // The goods type chosen on its own screen already answers
     // Business-vs-Personal (every GoodsType carries a category), so prefill
     // the "Select type of goods" block instead of asking again from scratch.
@@ -745,6 +749,8 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
         receiverPhone: _receiverPhoneController.text,
         senderName: _senderName,
         senderPhone: _senderPhone,
+        pickupAddressLine: _pickupLine,
+        dropAddressLine: _dropLine,
       );
 
       final bookingId = (result['data']?['_id'] ?? result['_id'] ?? '').toString();
@@ -1263,26 +1269,31 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
     );
   }
 
-  /// Who hands over and who receives the goods, as answered on the receiver
-  /// step, with Edit reopening that screen (in edit mode, so this page and its
-  /// selections stay as they are).
+  /// Who hands over and who receives the goods, as answered on the sender
+  /// and receiver steps, each with Edit reopening its screen (in edit mode, so
+  /// this page and its selections stay as they are).
   Widget _receiverRow() {
     final name = _receiverNameController.text.trim();
     final phone = _receiverPhoneController.text.trim();
-    final summary = [name, phone].where((s) => s.isNotEmpty).join('  ·  ');
+    final receiver = [name, phone].where((s) => s.isNotEmpty).join('  ·  ');
     final sender =
         [_senderName, _senderPhone].where((s) => s.isNotEmpty).join('  ·  ');
     return Column(
       children: [
-        _contactRow('Sender', sender.isEmpty ? 'You' : sender),
+        _contactRow('Sender', sender.isEmpty ? 'You' : sender, _pickupLine,
+            () => _editContact(sender: true)),
         const SizedBox(height: 10),
         _contactRow(
-            'Receiver', summary.isEmpty ? 'You (no separate receiver)' : summary),
+            'Receiver',
+            receiver.isEmpty ? 'You (no separate receiver)' : receiver,
+            _dropLine,
+            () => _editContact(sender: false)),
       ],
     );
   }
 
-  Widget _contactRow(String label, String value) {
+  Widget _contactRow(
+      String label, String value, String line, VoidCallback onEdit) {
     return Row(
       children: [
         Icon(Icons.person_outline, size: AppIconSize.md, color: Colors.grey.shade700),
@@ -1299,11 +1310,17 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.poppins(
                       fontSize: 13, fontWeight: FontWeight.w500)),
+              if (line.isNotEmpty)
+                Text(line,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(
+                        fontSize: 12, color: Colors.grey.shade600)),
             ],
           ),
         ),
         GestureDetector(
-          onTap: _editReceiver,
+          onTap: onEdit,
           child: Text('Edit',
               style: GoogleFonts.poppins(
                   fontSize: 13,
@@ -1314,7 +1331,7 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
     );
   }
 
-  Future<void> _editReceiver() async {
+  Future<void> _editContact({required bool sender}) async {
     final result = await pushTo(
       context,
       ReceiverDetailsScreen(
@@ -1323,16 +1340,24 @@ class _ReviewBookingScreenState extends State<ReviewBookingScreen> {
           receiverPhone: _receiverPhoneController.text.trim(),
           senderName: _senderName,
           senderPhone: _senderPhone,
+          pickupAddressLine: _pickupLine,
+          dropAddressLine: _dropLine,
         ),
         editOnly: true,
+        isSender: sender,
       ),
     );
     if (!mounted || result is! ReceiverDetailsResult) return;
     setState(() {
-      _receiverNameController.text = result.name;
-      _receiverPhoneController.text = result.phone;
-      _senderName = result.senderName;
-      _senderPhone = result.senderPhone;
+      if (sender) {
+        _senderName = result.name;
+        _senderPhone = result.phone;
+        _pickupLine = result.addressLine;
+      } else {
+        _receiverNameController.text = result.name;
+        _receiverPhoneController.text = result.phone;
+        _dropLine = result.addressLine;
+      }
     });
   }
 

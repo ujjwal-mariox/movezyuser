@@ -116,6 +116,12 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     _fetchRecentPlaces();
     _refreshPreviewRoute();
+    // Pickup starts at where the customer is (client feedback, 2026-11-12);
+    // they can still type, pick from the list or use the map to change it.
+    if (_pickupController.text.trim().isEmpty) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _useCurrentLocation(silent: true));
+    }
   }
 
   /// Remember what was cleared, so it stays cleared.
@@ -429,8 +435,10 @@ class _SearchScreenState extends State<SearchScreen> {
     return parts.join(', ');
   }
 
-  /// Use GPS to get current location as pickup
-  Future<void> _useCurrentLocation() async {
+  /// Use GPS to get current location as pickup. [silent] is the automatic
+  /// fill on opening: no error messages, and it never overwrites a pickup the
+  /// customer started entering meanwhile.
+  Future<void> _useCurrentLocation({bool silent = false}) async {
     setState(() => _locatingPickup = true);
     try {
       // Check permissions
@@ -440,7 +448,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
       if (perm == LocationPermission.deniedForever ||
           perm == LocationPermission.denied) {
-        if (mounted) {
+        if (mounted && !silent) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Location permission denied')),
           );
@@ -474,6 +482,7 @@ class _SearchScreenState extends State<SearchScreen> {
             : p.subAdministrativeArea;
       }
 
+      if (silent && _pickupController.text.trim().isNotEmpty) return;
       if (mounted) {
         setState(() {
           _pickupController.text = address;
@@ -484,7 +493,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _refreshPreviewRoute();
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Could not get location: $e')));

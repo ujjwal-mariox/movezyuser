@@ -765,6 +765,9 @@ class BookingService {
     // them to collect the goods.
     String? senderName,
     String? senderPhone,
+    // House / apartment / shop lines under the pickup and drop.
+    String? pickupAddressLine,
+    String? dropAddressLine,
     // Scheduled pickup. When set, the backend creates the booking as DRAFT and
     // the scheduled-dispatch job sends it to drivers near the pickup time.
     String? scheduledDate,
@@ -814,6 +817,10 @@ class BookingService {
         'senderName': senderName.trim(),
       if (senderPhone != null && senderPhone.trim().isNotEmpty)
         'senderPhone': senderPhone.trim(),
+      if (pickupAddressLine != null && pickupAddressLine.trim().isNotEmpty)
+        'pickupAddressLine': pickupAddressLine.trim(),
+      if (dropAddressLine != null && dropAddressLine.trim().isNotEmpty)
+        'dropAddressLine': dropAddressLine.trim(),
       if (scheduledDate != null) 'scheduledDate': scheduledDate,
       if (scheduledTimeSlotId != null)
         'scheduledTimeSlotId': scheduledTimeSlotId,
