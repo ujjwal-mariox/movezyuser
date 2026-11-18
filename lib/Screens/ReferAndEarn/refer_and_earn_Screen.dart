@@ -29,6 +29,7 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
   bool _isLoading = true;
   String _referralCode = '';
   String _referralLink = '';
+  String _serverShareMessage = '';
   int _referralCount = 0;
   double _totalEarnings = 0;
   double _referrerReward = 100;
@@ -52,6 +53,7 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
         setState(() {
           _referralCode = data.referralCode;
           _referralLink = data.referralLink;
+          _serverShareMessage = data.shareMessage;
           _referralCount = data.referralCount;
           _totalEarnings = data.totalEarnings;
           _referrerReward = data.referrerRewardAmount;
@@ -73,6 +75,8 @@ class _ReferAndEarnScreenState extends State<ReferAndEarnScreen> {
   /// One message for every channel, so the code and the link can never drift
   /// apart between WhatsApp and the generic share sheet.
   String get _shareMessage {
+    // The admin-written message, with this customer's code and links.
+    if (_serverShareMessage.isNotEmpty) return _serverShareMessage;
     final buffer = StringBuffer()
       ..write('Hey! Use my Movezy referral code $_referralCode when you sign '
           'up and get ₹${_refereeReward.toInt()} in your Movezy wallet.');

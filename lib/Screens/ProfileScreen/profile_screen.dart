@@ -50,6 +50,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// (GET /user/referral/stats). Empty until it loads — never substituted.
   String _referralCode = '';
   String _referralLink = '';
+  String _serverShareMessage = '';
 
   /// Reward amounts as the server defines them (REFERRER_REWARD_AMOUNT /
   /// REFEREE_REWARD_AMOUNT in referral.controller). Null until loaded, and the
@@ -90,6 +91,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _referralCode = data.referralCode;
         _referralLink = data.referralLink;
+        _serverShareMessage = data.shareMessage;
         _referrerReward = data.referrerRewardAmount;
         _refereeReward = data.refereeRewardAmount;
       });
@@ -132,7 +134,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (_referralLink.isNotEmpty) {
       buffer.write('\n\nDownload Movezy: $_referralLink');
     }
-    final message = buffer.toString();
+    // The admin-written message (Settings → Referral share messages) wins;
+    // the short text above is only for an older server that doesn't send it.
+    final message =
+        _serverShareMessage.isNotEmpty ? _serverShareMessage : buffer.toString();
 
     try {
       // ignore: deprecated_member_use

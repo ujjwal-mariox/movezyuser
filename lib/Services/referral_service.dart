@@ -10,6 +10,11 @@ class ReferralData {
   /// the admin-configured store URL. Empty when the admin hasn't set one — the
   /// share sheet then goes out with the code alone rather than a dead link.
   final String referralLink;
+
+  /// The full message to share, written by the admin (Settings → Referral
+  /// share messages) with this customer's code and links filled in. Empty from
+  /// an older server; the screens then build their own short message.
+  final String shareMessage;
   final int referralCount;
   final double totalEarnings;
   final double referrerRewardAmount;
@@ -19,6 +24,7 @@ class ReferralData {
   ReferralData({
     required this.referralCode,
     this.referralLink = '',
+    this.shareMessage = '',
     required this.referralCount,
     required this.totalEarnings,
     required this.referrerRewardAmount,
@@ -33,6 +39,7 @@ class ReferralData {
     return ReferralData(
       referralCode: json['referralCode'] ?? '',
       referralLink: json['referralLink'] ?? '',
+      shareMessage: json['shareMessage'] ?? '',
       referralCount: json['referralCount'] ?? 0,
       totalEarnings: (json['totalEarnings'] ?? 0).toDouble(),
       referrerRewardAmount: (json['referrerRewardAmount'] ?? 100).toDouble(),
